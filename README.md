@@ -38,8 +38,18 @@
 | `npm run blogger:update` | Blogger 글 수정 (`--post-id`, `--title`, `--content`, `--labels`) |
 | `npm run blogger:publish` | Blogger 글 발행 (`--post-id`) |
 | `npm run blogger:delete` | Blogger 글 삭제 (`--post-id`, `--draft-only`) |
-| `npm run assets:upload` | 이미지 압축 & GitHub Pages 업로드 |
+| `npm run assets:upload` | 이미지 압축 & GitHub Pages 업로드 (`--date`, `--slug`, `--max-size-kb`) |
 | `npm run assets:test` | 업로드 테스트 |
+
+CLI 직접 호출:
+
+```bash
+# EXIF 메타데이터 추출 (날짜/GPS/카메라 정보)
+node scripts/extract-exif.js <이미지경로...> [--output tmp/metadata.json]
+
+# 이미지 처리 & GitHub Pages 업로드
+node scripts/upload-images.js <이미지경로...> [--date YYYY-MM-DD] [--slug 슬러그] [--max-size-kb N]
+```
 
 ### 라이브러리 (`lib/`)
 
@@ -55,20 +65,42 @@
 | `blog-draft.schema.json` | 블로그 초안 출력 스키마 |
 | `visit-research.schema.json` | 방문지 리서치 출력 스키마 |
 
+## 사진 파이프라인
+
+블로그 글 작성과 독립적으로 동작하며, 다른 에이전트도 메타데이터를 활용할 수 있도록 결과를 JSON 파일로 저장한다.
+
+1. **EXIF 메타데이터 추출** (`extract-exif.js`) — 날짜, GPS, 카메라 정보를 추출.
+2. **이미지 처리 & 업로드** (`upload-images.js`) — WebP 변환, 리사이즈, 워터마크, GitHub Pages 업로드.
+
+### 이미지 처리 정책
+
+- **WebP 전용**: JPEG 폴백 없음. `<picture>` 래퍼 없이 `<img src="...webp">` 직접 사용.
+- **리사이즈**: 최대 1024×1024 (원본이 더 작으면 원본 유지).
+- **AdSense 파일 크기**: 이미지당 150KB 이하 (quality 80→70→60→50 자동 조절, `--max-size-kb`로 조정).
+- **워터마크**: 우측 하단 반투명, `WATERMARK_TEXT` 환경변수로 텍스트 지정.
+- **경로 난독화**: `posts/{date}-{sha256hash12}/photo-NN.webp` — URL 추측 방지.
+- **업로드 후 URL 검증**: 최대 3회 재시도.
+
+### 종료 코드
+
+| 스크립트 | 0 | 1 | 2 | 3 | 4 |
+|---|---|---|---|---|---|
+| `extract-exif.js` | 성공 | 일반 실패 | `--output` 쓰기 실패 | 지원 이미지 없음 | — |
+| `upload-images.js` | 전부 정상 | 업로드/검증 실패 | — | — | fallback/oversize 발생 (정책 점검 필요) |
+
 ## 블로그 글 작성 워크플로우
 
+사진 파이프라인 완료 후 진행한다.
+
 ```text
-1. 사용자가 텔레그램에서 사진과 방문 메모를 보냄
-2. Claude Code가 사진을 분석하고 방문지를 파악
-3. Claude Code가 prompts/ 파일을 읽고 스타일 가이드를 준수
-4. Claude Code가 방문지 리서치 (공식 페이지, 관광 정보, 주변 랜드마크)
-5. Claude Code가 scripts/upload-images.js로 사진을 GitHub Pages에 업로드
-6. Claude Code가 초안을 작성 (JSON 형식: title, content_html, labels, summary, fact_check_notes)
-7. Claude Code가 scripts/create-draft.js로 Blogger에 초안 생성
-8. 사용자가 텔레그램에서 수정 요청
-9. Claude Code가 scripts/update-post.js로 기존 글 수정
-10. 사용자가 발행 승인
-11. Claude Code가 scripts/publish-post.js로 글 발행
+1. EXIF 메타데이터와 사용자 메모를 바탕으로 방문지 리서치 (공식 페이지, 메뉴/가격, 주차 정보)
+2. prompts/ 디렉토리의 스타일 가이드와 시스템 규칙을 참고하여 초안 작성
+   - SEO 라벨은 지역+장소명+카테고리+계절+동행 조합으로 자동 생성
+   - 주차·꿀팁·메뉴 정보는 별도 섹션 없이 본문에 자연스럽게 녹임
+3. scripts/create-draft.js로 Blogger에 초안 생성 (이미지 URL 검증 포함)
+4. 사용자가 수정을 요청하면 scripts/update-post.js로 기존 글 수정
+   (--labels 생략 시 기존 라벨 보존)
+5. 사용자가 승인하면 scripts/publish-post.js로 발행
 ```
 
 ## 환경변수
@@ -86,6 +118,7 @@
 | `GITHUB_ASSET_BRANCH` | 브랜치 (기본값: main) |
 | `GITHUB_ASSET_BASE_URL` | 이미지 기본 URL |
 | `GITHUB_TOKEN` | GitHub 토큰 (비워두면 `gh auth token` 사용) |
+| `WATERMARK_TEXT` | 워터마크 텍스트 (선택, 기본값: `electronian-review.blogspot.com`) |
 
 ## 현재 상태
 
