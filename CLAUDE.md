@@ -9,12 +9,20 @@
 ## 블로그 글 작성 워크플로우
 
 1. 사용자가 텔레그램에서 사진과 방문 메모를 보냄
-2. Claude Code가 사진을 분석하고 방문지 정보를 리서치
-3. `prompts/` 디렉토리의 스타일 가이드와 시스템 규칙을 참고하여 초안 작성
-4. `scripts/upload-images.js`로 이미지를 GitHub Pages에 업로드
-5. `scripts/create-draft.js`로 Blogger에 초안 생성
-6. 사용자가 수정을 요청하면 `scripts/update-post.js`로 기존 글 수정
-7. 사용자가 승인하면 `scripts/publish-post.js`로 발행
+2. Claude Code가 `scripts/extract-exif.js`로 사진 메타데이터(EXIF)에서 날짜와 GPS 좌표를 추출
+3. EXIF 정보와 사용자 메모를 바탕으로 방문지 리서치 (`prompts/visit-research.md`)
+   - 공식 홈페이지 > 네이버/카카오 지도 > 관광공사 > 구글 검색 순으로 정보 수집
+   - 식당/카페는 메뉴·가격 정보까지 수집
+   - 주차 정보(무료/유료, 매장 이용 시 무료, 꿀팁)를 구조화하여 수집
+4. `prompts/` 디렉토리의 스타일 가이드와 시스템 규칙을 참고하여 초안 작성
+   - SEO 라벨은 지역+장소명+카테고리+계절+동행 조합으로 자동 생성
+   - 주차·꿀팁·메뉴 정보는 별도 섹션 없이 본문에 자연스럽게 녹임
+   - 공식 홈페이지 링크는 실용 정보 근처나 마무리 단락에 배치
+   - EXIF 날짜가 있으면 방문 날짜로 사용, GPS 좌표가 있으면 장소 확인에 활용
+5. `scripts/upload-images.js`로 이미지를 GitHub Pages에 업로드
+6. `scripts/create-draft.js`로 Blogger에 초안 생성 (이미지 URL 검증 포함)
+7. 사용자가 수정을 요청하면 `scripts/update-post.js`로 기존 글 수정
+8. 사용자가 승인하면 `scripts/publish-post.js`로 발행
 
 ## 사용 가능한 스크립트
 
@@ -26,6 +34,14 @@
 | `npm run blogger:draft` | Blogger 초안 생성 |
 | `npm run blogger:update` | Blogger 글 수정 |
 | `npm run blogger:publish` | Blogger 글 발행 |
+
+### EXIF 메타데이터 추출 (CLI)
+
+```bash
+node scripts/extract-exif.js <이미지경로1> [이미지경로2] ...
+```
+
+사진에서 날짜, GPS 좌표, 카메라 정보를 추출한다. 워크플로우 2단계에서 자동으로 활용한다.
 
 ### 이미지 업로드 (CLI)
 

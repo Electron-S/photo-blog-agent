@@ -46,6 +46,10 @@
         "website": {
           "type": ["string", "null"],
           "description": "공식 홈페이지 URL"
+        },
+        "website_display_name": {
+          "type": ["string", "null"],
+          "description": "본문 링크에 표시할 짧은 이름 (예: '석촌호수 공식 페이지')"
         }
       }
     },
@@ -59,8 +63,33 @@
           "description": "가장 가까운 역/정류장, 노선, 출구, 도보 거리"
         },
         "parking": {
-          "type": "string",
-          "description": "주차 가능 여부, 요금, 팁"
+          "type": "object",
+          "description": "주차 정보",
+          "additionalProperties": false,
+          "required": ["available", "type"],
+          "properties": {
+            "available": {
+              "type": "string",
+              "enum": ["가능", "불가", "제한적"],
+              "description": "주차 가능 여부"
+            },
+            "type": {
+              "type": "string",
+              "description": "무료/유료/매장 이용 시 무료 등"
+            },
+            "details": {
+              "type": "string",
+              "description": "수용 대수, 운영 시간, 요금 상세 등"
+            },
+            "validation_available": {
+              "type": "boolean",
+              "description": "매장 이용 시 무료/할인 주차 가능 여부"
+            },
+            "tips": {
+              "type": "string",
+              "description": "주차 꿀팁 (무료 시간대, 인근 저렴 주차장 등)"
+            }
+          }
         },
         "accessibility": {
           "type": "string",
@@ -84,6 +113,45 @@
         "promotions": {
           "type": "string",
           "description": "현재 프로모션 (있는 경우만)"
+        }
+      }
+    },
+    "menu_and_pricing": {
+      "type": ["object", "null"],
+      "description": "식당/카페/주점 카테고리일 때만 작성. 다른 카테고리면 null",
+      "additionalProperties": false,
+      "required": ["signature_dishes", "average_price_per_person"],
+      "properties": {
+        "signature_dishes": {
+          "type": "array",
+          "description": "대표 메뉴",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "메뉴명"
+              },
+              "price_range": {
+                "type": ["string", "null"],
+                "description": "가격 범위 (예: '8,000~12,000원'). 확인 불가면 null"
+              },
+              "note": {
+                "type": ["string", "null"],
+                "description": "한 줄 설명 (예: '매장 시그니처 메뉴'). 없으면 null"
+              }
+            }
+          }
+        },
+        "average_price_per_person": {
+          "type": ["string", "null"],
+          "description": "1인 평균 가격 범위 (예: '1만~2만원'). 확인 불가면 null"
+        },
+        "reservation_policy": {
+          "type": ["string", "null"],
+          "description": "예약 필요 여부와 방법. 없으면 null"
         }
       }
     },
@@ -145,6 +213,15 @@
         "crowd_levels": {
           "type": "string",
           "description": "혼잡도 정보"
+        },
+        "parking_tips": {
+          "type": "string",
+          "description": "주차 관련 꿀팁 (무료 시간대, 인근 저렴 주차장, 주차장 혼잡 시간대 등)"
+        },
+        "essential_info": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "방문 전 반드시 알아야 할 핵심 정보"
         }
       }
     },

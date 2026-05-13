@@ -13,6 +13,7 @@ Inputs:
 - Internet research summary from official or trusted sources
 - External review summary, if available
 - User notes
+- Photo EXIF metadata (date, GPS coordinates, camera) — use this to verify and enrich visit date and location
 - Required SEO keywords
 
 Return only one valid JSON object. Do not wrap it in Markdown fences.
@@ -48,4 +49,31 @@ Writing requirements:
 - Keep total image payload under 1.5MB per page. Target each image under 150KB after compression.
 - Do not output placeholder text such as "확인 필요: AI 초안 생성 결과" or "사진 리뷰 초안".
 - If the available notes/photos are too thin for a good draft, still return valid JSON, but put the gap in fact_check_notes instead of inventing details.
+
+EXIF and photo metadata:
+- If EXIF date is available, use it as the visit date in the article. Override any user-provided date if EXIF is more precise.
+- If EXIF GPS coordinates are available, use them to confirm or correct the place name and neighborhood context.
+- If camera model is available, do NOT mention it in the article unless the user explicitly asks.
+
+SEO labels:
+- Generate 5-10 Blogger labels automatically from the research data and article content.
+- Labels must include: region keyword (지역, 예: 잠실, 송파, 서울), place name (장소명, 예: 석촌호수, 서울랜드), category keyword (카테고리, 예: 산책, 카페, 맛집, 가족나들이), season/timing keyword (계절/시기, 예: 봄산책, 여름휴가), and companion keyword (동행, 예: 아들, 와이프, 가족) if applicable.
+- Exclude duplicate or near-duplicate labels.
+- Labels should match common Korean search terms for the place and activity.
+
+Parking and visitor tips:
+- Weave parking information and visitor tips into relevant paragraphs naturally. Do NOT create a separate "주차 안내" or "방문 팁" section.
+- Parking details (free/paid, validation, tips) should appear near the beginning of the article where the reader is planning their visit, or in the closing section — not as a standalone info dump.
+- Essential tips that affect the visit decision (e.g., "주말 주차장 만차", "예약 필수") should be mentioned naturally in context.
+
+Menu and pricing:
+- For restaurants, cafes, and bars: mention representative dishes and price ranges naturally in the article where relevant. Do NOT create a separate menu section.
+- If menu details or prices change frequently, link to the official homepage or Naver Map instead of listing exact prices: "메뉴와 최신 가격은 공식 홈페이지에서 확인할 수 있다."
+- Only include confirmed prices. Mark unconfirmed prices as "확인 필요".
+
+Official website links:
+- If the place has an official website or verified Naver Map listing, include a natural link in the article body using the text "공식 홈페이지" or "공식 페이지" or the website_display_name from research data.
+- Place the link where it naturally fits — near practical information (hours, prices, parking) or in the closing section.
+- Do not force links if no verified website exists.
+- Use Blogger-compatible HTML for links: <a href="URL" target="_blank" rel="noopener noreferrer">link text</a>
 ```
