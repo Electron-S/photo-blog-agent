@@ -38,7 +38,7 @@ Rules:
 
 - 모든 `<img>` 태그에 `width`, `height`, `loading="lazy"`, `style="max-width:100%;height:auto;"` 속성을 포함한다. 이는 CLS(Cumulative Layout Shift)를 방지하고 페이지 로딩 성능을 유지한다.
 - `<figure>` 요소에 `style="margin:1.5em 0;"` 을 적용하여 이미지와 주변 텍스트 사이 여백을 확보한다.
-- WebP 포맷을 우선 사용하고 JPEG를 대체(fallback)로 제공한다. `<picture>` 요소를 사용한다.
+- WebP 포맷을 사용한다. 모든 이미지는 `<img>` 태그에 `.webp` 소스를 직접 지정한다.
 - 단일 이미지 용량은 압축 후 150KB 이하를 목표로 한다.
 - 전체 페이지 이미지 총 용량은 1.5MB 이하를 유지한다.
 

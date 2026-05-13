@@ -8,7 +8,7 @@ Create a Korean Blogger draft from the provided data.
 
 Inputs:
 - User photos and photo analysis
-- Public image URLs (webpUrl for primary, jpgUrl for fallback)
+- Public image URLs (webpUrl)
 - Confirmed or candidate place information
 - Internet research summary from official or trusted sources
 - External review summary, if available
@@ -39,9 +39,9 @@ Writing requirements:
 - Avoid ad-click encouragement.
 - Use proper names for well-known landmarks and buildings visible in photos or near the visit location. "롯데타워", not "큰 건물". If the landmark name is uncertain, mark it as "확인 필요".
 - Do not state obvious facts in a preachy tone. Information that readers already know should be woven in naturally, not presented as instruction.
-- Insert images directly with Blogger-compatible <figure>, <picture>, <img>, and <figcaption> HTML.
-- Use provided image URLs in order. Prefer WebP URLs when available, with JPEG as fallback inside <picture>.
-- If the WebP URL is null or missing for an image, use a plain <img> tag with the JPEG URL only — do NOT use <picture>/<source> wrapper when WebP is unavailable.
+- Insert images directly with Blogger-compatible <figure>, <img>, and <figcaption> HTML.
+- Use provided WebP image URLs in order. All images are WebP format — use a plain <img> tag with the WebP URL as src.
+- If a WebP URL is null or missing for an image, skip that image entirely rather than inventing a URL.
 - Every image must have specific alt text and a natural caption. Do not use generic captions like "사진 1".
 - Every <img> tag must include: loading="lazy", width, height, style="max-width:100%;height:auto;".
 - Every <figure> tag must include: style="margin:1.5em 0;".
