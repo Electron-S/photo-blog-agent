@@ -110,6 +110,47 @@
 성수동 카페 방문기, 사진으로 남겨본 자리와 분위기
 ```
 
+## Image Formatting For AdSense
+
+모든 이미지는 아래 HTML 템플릿을 따른다. AdSense 승인과 Core Web Vitals 기준을 만족해야 한다.
+
+### `<figure>` 템플릿
+
+```html
+<figure style="margin:1.5em 0;">
+  <picture>
+    <source srcset="https://...photo-01.webp" type="image/webp" />
+    <img loading="lazy" width="1200" height="800"
+         src="https://...photo-01.jpg"
+         alt="구체적이고 자연스러운 한국어 설명"
+         style="max-width:100%;height:auto;" />
+  </picture>
+  <figcaption>장면을 설명하는 자연스러운 문장.</figcaption>
+</figure>
+```
+
+### 필수 속성
+
+- `<figure style="margin:1.5em 0;">` — 이미지와 주변 텍스트 사이 충분한 여백. 광고와 이미지가 시각적으로 분리되도록 한다.
+- `<picture>` + `<source type="image/webp">` — WebP를 우선 제공하고 JPEG를 대체 포맷으로 둔다.
+- `<img loading="lazy">` — 뷰포트 밖 이미지는 지연 로딩.
+- `<img width="..." height="...">` — 브라우저가 로딩 전에 공간을 확보하여 CLS를 방지한다. 실제 픽셀 크기를 명시한다.
+- `<img style="max-width:100%;height:auto;">` — 반응형 이미지. 모바일에서 넘치지 않는다.
+- `alt` — 키워드 스터핑 없이 구체적이고 자연스러운 한국어 설명.
+- `<figcaption>` — "사진 1" 같은 제네릭 캡션을 금지한다. 장면을 설명하는 자연스러운 문장.
+
+### 이미지와 광고 분리
+
+- 이미지 바로 아래에 광고가 위치하면 "이 광고는 이 사진과 관련있다"로 오해될 수 있어 AdSense 정책 위반이다.
+- 이미지 다음에 반드시 2문장 이상의 텍스트 단락이 이어져야 광고와 이미지가 시각적으로 분리된다.
+- 광고를 유도하는 화살표, 장식 기호, 과도한 애니메이션을 이미지 근처에 넣지 않는다.
+
+### 이미지 용량 목표
+
+- 단일 이미지 압축 후 150KB 이하.
+- 전체 페이지 이미지 총 1.5MB 이하.
+- WebP 포맷 사용 시 JPEG 대비 30-50% 용량 감소를 기대한다.
+
 ## Revision Style
 
 - 사용자가 사실관계를 정정하면 기존 문장을 고집하지 않고 바로 반영한다.

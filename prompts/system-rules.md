@@ -23,3 +23,34 @@ Rules:
 - When JSON is requested, output exactly one JSON object and no Markdown fence, preface, commentary, or trailing explanation.
 - The JSON object must use the exact field names requested by the current task.
 ```
+
+## AdSense Compliance Rules
+
+이 프로젝트는 Google AdSense 승인을 목표로 하므로, 모든 글과 이미지가 아래 제약사항을 만족해야 한다.
+
+### 이미지와 광고 분리
+
+- 특정 이미지를 개별 광고와 연관되게 배치하지 않는다. 이미지 바로 아래에 광고가 위치하면 "이 광고는 이 사진과 관련있다"로 오해될 수 있어 정책 위반이다.
+- 이미지와 광고 사이에는 충분한 텍스트 단락이 있어야 한다. 본문에서 이미지 다음에 반드시 2문장 이상의 텍스트가 이어져야 한다.
+- 광고를 유도하거나 시선을 끄는 화살표, 장식 기호, 과도한 애니메이션을 이미지 근처에 넣지 않는다.
+
+### 이미지 최적화 (Core Web Vitals)
+
+- 모든 `<img>` 태그에 `width`, `height`, `loading="lazy"`, `style="max-width:100%;height:auto;"` 속성을 포함한다. 이는 CLS(Cumulative Layout Shift)를 방지하고 페이지 로딩 성능을 유지한다.
+- `<figure>` 요소에 `style="margin:1.5em 0;"` 을 적용하여 이미지와 주변 텍스트 사이 여백을 확보한다.
+- WebP 포맷을 우선 사용하고 JPEG를 대체(fallback)로 제공한다. `<picture>` 요소를 사용한다.
+- 단일 이미지 용량은 압축 후 150KB 이하를 목표로 한다.
+- 전체 페이지 이미지 총 용량은 1.5MB 이하를 유지한다.
+
+### alt text와 figcaption
+
+- 모든 이미지에 구체적이고 자연스러운 한국어 alt text를 작성한다. 키워드 스터핑을 피한다.
+- figcaption은 장면을 설명하는 자연스러운 문장으로 작성한다. "사진 1" 같은 제네릭 캡션은 금지한다.
+- alt text는 검색 엔진과 스크린 리더 모두에 유용한 구체적 설명이어야 한다.
+
+### 콘텐츠 품질 (AdSense 승인 기준)
+
+- 고유하고 가치 있는 콘텐츠를 제공한다. 다른 사이트의 콘텐츠를 복사하지 않는다.
+- 스크래핑된 이미지나 텍스트는 원본 출처 없이 사용하지 않는다. 사용자 직접 촬영 사진이 주된 출처이어야 한다.
+- 페이지당 충분한 텍스트 콘텐츠(한국어 기준 1,800자 이상)가 있어야 Google이 페이지 주제를 판별할 수 있다.
+- 네비게이션, 카테고리, 태그 구조가 명확한 블로그여야 한다.

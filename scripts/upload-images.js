@@ -51,10 +51,13 @@ async function main() {
   console.log(JSON.stringify(result.map(item => ({
     index: item.index,
     originalPath: item.originalPath,
-    remotePath: item.remotePath,
+    webpUrl: item.webpUrl,
+    jpgUrl: item.jpgUrl,
     url: item.url,
     originalBytes: item.originalBytes,
-    compressedBytes: item.compressedBytes,
+    webpBytes: item.webpBytes,
+    jpgBytes: item.jpgBytes,
+    ...(item.error ? { error: item.error } : {}),
   })), null, 2));
 }
 

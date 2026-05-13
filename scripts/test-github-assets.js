@@ -37,10 +37,14 @@ async function main() {
 
   console.log(JSON.stringify(result.map((item) => ({
     index: item.index,
-    remotePath: item.remotePath,
+    originalPath: item.originalPath,
+    webpUrl: item.webpUrl,
+    jpgUrl: item.jpgUrl,
     url: item.url,
     originalBytes: item.originalBytes,
-    compressedBytes: item.compressedBytes,
+    webpBytes: item.webpBytes,
+    jpgBytes: item.jpgBytes,
+    ...(item.error ? { error: item.error } : {}),
   })), null, 2));
 
   // 임시 파일 정리
