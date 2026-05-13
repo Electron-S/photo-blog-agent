@@ -21,8 +21,23 @@ function getArg(name) {
   return args[idx + 1];
 }
 
+function parseArgs() {
+  const FLAGS_WITH_VALUE = new Set(['--date', '--slug', '--work-dir']);
+  const imagePaths = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (FLAGS_WITH_VALUE.has(a)) {
+      i += 1;
+      continue;
+    }
+    if (a.startsWith('--')) continue;
+    imagePaths.push(a);
+  }
+  return imagePaths;
+}
+
 async function main() {
-  const imagePaths = args.filter(a => !a.startsWith('--') && !getArg(a));
+  const imagePaths = parseArgs();
   const date = getArg('--date') || new Date().toISOString().slice(0, 10);
   const slug = getArg('--slug');
   const workDir = getArg('--work-dir');
