@@ -40,6 +40,7 @@ Writing requirements:
 - Do not state obvious facts in a preachy tone. Information that readers already know should be woven in naturally, not presented as instruction.
 - Insert images directly with Blogger-compatible <figure>, <picture>, <img>, and <figcaption> HTML.
 - Use provided image URLs in order. Prefer WebP URLs when available, with JPEG as fallback inside <picture>.
+- If the WebP URL is null or missing for an image, use a plain <img> tag with the JPEG URL only — do NOT use <picture>/<source> wrapper when WebP is unavailable.
 - Every image must have specific alt text and a natural caption. Do not use generic captions like "사진 1".
 - Every <img> tag must include: loading="lazy", width, height, style="max-width:100%;height:auto;".
 - Every <figure> tag must include: style="margin:1.5em 0;".

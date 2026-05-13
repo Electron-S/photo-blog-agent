@@ -48,6 +48,18 @@ async function main() {
 
   const labels = labelsArg ? labelsArg.split(',').map(l => l.trim()).filter(Boolean) : [];
 
+  console.log('Verifying image URLs...');
+  const { verifyImageUrls } = require('../lib/verify-images');
+  const imageCheck = await verifyImageUrls(content);
+  if (!imageCheck.ok) {
+    console.error('Broken image URLs found:');
+    for (const { url, status } of imageCheck.broken) {
+      console.error(`  ${status}: ${url}`);
+    }
+    process.exit(1);
+  }
+  console.log(`All ${imageCheck.broken.length === 0 ? '' : 'remaining '}image URLs verified.`);
+
   console.log('Creating Blogger draft...');
   const post = await createDraftPost({ title, content, labels });
 

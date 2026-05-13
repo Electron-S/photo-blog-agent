@@ -53,6 +53,19 @@ async function main() {
     printUsage();
   }
 
+  if (content) {
+    console.log('Verifying image URLs...');
+    const { verifyImageUrls } = require('../lib/verify-images');
+    const imageCheck = await verifyImageUrls(content);
+    if (!imageCheck.ok) {
+      console.error('Broken image URLs found:');
+      for (const { url, status } of imageCheck.broken) {
+        console.error(`  ${status}: ${url}`);
+      }
+      process.exit(1);
+    }
+  }
+
   console.log(`Updating Blogger post ${postId}...`);
   const post = await updatePost(postId, updateData);
 
