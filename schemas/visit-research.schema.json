@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "place_query",
+    "researched_at",
+    "place_info",
+    "access",
+    "cost_and_hours",
+    "nearby_landmarks",
+    "neighborhood_context",
+    "visitor_tips",
+    "review_signals",
+    "sources",
+    "fact_check_notes"
+  ],
+  "properties": {
+    "place_query": {
+      "type": "string"
+    },
+    "researched_at": {
+      "type": "string"
+    },
+    "place_info": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "category", "address"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "공식 명칭"
+        },
+        "category": {
+          "type": "string",
+          "description": "카테고리 (공원/카페/맛집/전시/체험 등)"
+        },
+        "address": {
+          "type": "string",
+          "description": "주소"
+        },
+        "phone": {
+          "type": ["string", "null"],
+          "description": "전화번호"
+        },
+        "website": {
+          "type": ["string", "null"],
+          "description": "공식 홈페이지 URL"
+        }
+      }
+    },
+    "access": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["public_transport", "parking"],
+      "properties": {
+        "public_transport": {
+          "type": "string",
+          "description": "가장 가까운 역/정류장, 노선, 출구, 도보 거리"
+        },
+        "parking": {
+          "type": "string",
+          "description": "주차 가능 여부, 요금, 팁"
+        },
+        "accessibility": {
+          "type": "string",
+          "description": "접근성 정보 (필요한 경우만)"
+        }
+      }
+    },
+    "cost_and_hours": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operating_hours"],
+      "properties": {
+        "operating_hours": {
+          "type": "string",
+          "description": "운영시간과 변동 가능성 안내"
+        },
+        "ticket_or_fee": {
+          "type": "string",
+          "description": "입장료/요금 범위"
+        },
+        "promotions": {
+          "type": "string",
+          "description": "현재 프로모션 (있는 경우만)"
+        }
+      }
+    },
+    "nearby_landmarks": {
+      "type": "array",
+      "description": "방문지에서 보이거나 가까운 유명 랜드마크·건물",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "relation", "description"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "랜드마크/건물의 정확한 명칭"
+          },
+          "relation": {
+            "type": "string",
+            "description": "방문지와의 관계 (보이는 위치, 도보 거리 등)"
+          },
+          "description": {
+            "type": "string",
+            "description": "독자에게 왜 의미 있는지 한 줄 설명"
+          }
+        }
+      }
+    },
+    "neighborhood_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["area_name", "known_for"],
+      "properties": {
+        "area_name": {
+          "type": "string",
+          "description": "동네/지역 명칭"
+        },
+        "known_for": {
+          "type": "string",
+          "description": "이 지역이 알려진 이유 (1-2문장)"
+        },
+        "seasonal_notes": {
+          "type": "string",
+          "description": "계절적 특징이나 방문 시 참고사항"
+        }
+      }
+    },
+    "visitor_tips": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["best_times", "crowd_levels"],
+      "properties": {
+        "best_times": {
+          "type": "string",
+          "description": "방문하기 좋은 시간대"
+        },
+        "common_routes": {
+          "type": "string",
+          "description": "일반적인 동선이나 추천 코스"
+        },
+        "crowd_levels": {
+          "type": "string",
+          "description": "혼잡도 정보"
+        }
+      }
+    },
+    "review_signals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["overall_sentiment"],
+      "properties": {
+        "common_positives": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "자주 언급되는 장점들"
+        },
+        "common_concerns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "자주 언급되는 아쉬운 점들"
+        },
+        "overall_sentiment": {
+          "type": "string",
+          "description": "2-3문장 전체 평가 요약"
+        }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "title",
+          "url",
+          "source_type",
+          "notes"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "official",
+              "map",
+              "tourism",
+              "review-summary",
+              "other"
+            ]
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "fact_check_notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

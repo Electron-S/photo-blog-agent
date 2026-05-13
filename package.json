@@ -1,0 +1,21 @@
+{
+  "name": "photo-blog-agent",
+  "version": "1.0.0",
+  "description": "사진 기반 Blogger 글 작성 에이전트 — 프롬프트, 스크립트, 설정",
+  "private": true,
+  "scripts": {
+    "blogger:auth": "node scripts/get-blogger-token.js",
+    "blogger:test": "node scripts/test-blogger-api.js",
+    "blogger:draft": "node scripts/create-draft.js",
+    "blogger:update": "node scripts/update-post.js",
+    "blogger:publish": "node scripts/publish-post.js",
+    "blogger:delete": "node scripts/delete-post.js",
+    "assets:upload": "node scripts/upload-images.js",
+    "assets:test": "node scripts/test-github-assets.js"
+  },
+  "dependencies": {
+    "axios": "^1.15.0",
+    "dotenv": "^16.4.5",
+    "sharp": "^0.34.5"
+  }
+}
