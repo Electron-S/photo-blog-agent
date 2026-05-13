@@ -1,0 +1,36 @@
+<!-- Blogger 이미지 보호 스크립트 -->
+<!-- Blogger 테마 > HTML 편집에서 </head> 앞에 추가하세요 -->
+
+<style>
+/* 이미지 드래그 방지 */
+.post-body img,
+.post-body figure,
+.post-body picture {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* 이미지 우클릭 방지 오버레이 (선택적) */
+figure {
+  position: relative;
+}
+</style>
+
+<script>
+// 이미지 우클릭 방지
+document.addEventListener('contextmenu', function(e) {
+  if (e.target.tagName === 'IMG' || e.target.closest('figure') || e.target.closest('picture')) {
+    e.preventDefault();
+  }
+});
+
+// 이미지 드래그 방지
+document.addEventListener('dragstart', function(e) {
+  if (e.target.tagName === 'IMG') {
+    e.preventDefault();
+  }
+});
+</script>
