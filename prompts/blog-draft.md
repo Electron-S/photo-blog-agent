@@ -44,7 +44,7 @@ Writing requirements:
 - If a WebP URL is null or missing for an image, skip that image entirely rather than inventing a URL.
 - Every image must have specific alt text and a natural caption. Do not use generic captions like "사진 1".
 - Every <img> tag must include: loading="lazy", width, height, style="max-width:100%;height:auto;".
-- Every <figure> tag must include: style="margin:1.5em 0;text-align:center;". This centers the image and caption.
+- Every <figure> tag must include: style="margin:1.5em 0;text-align:center;position:relative;". This centers the image and caption. The position:relative is needed for the image protection overlay.
 - The width and height attributes on <img> must match the actual image dimensions (e.g., portrait photos might be 768x1024, landscape 1024x768). Do not use a fixed size for all images.
 - After every image, include at least 2 sentences of text before the next image or section. This ensures ads and images are visually separated per AdSense policy.
 - Keep total image payload under 1.5MB per page. Target each image under 150KB after compression.

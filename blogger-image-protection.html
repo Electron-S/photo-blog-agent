@@ -1,8 +1,13 @@
 <!-- Blogger 이미지 보호 스크립트 -->
 <!-- Blogger 테마 > HTML 편집에서 </head> 앞에 추가하세요 -->
+<!--
+  보호 수준: 우클릭 차단, 드래그 차단, 투명 오버레이, 키보드 단축키 차단, 인쇄 시 이미지 숨김
+  주의: 100% 완벽한 보호는 불가능합니다. 개발자 도구 등으로 우회 가능하지만,
+  일반적인 경로로는 이미지를 저장하거나 원본 URL을 찾기 어렵게 만듭니다.
+-->
 
 <style>
-/* 이미지 드래그 방지 */
+/* 이미지 드래그·선택·우클릭 방지 */
 .post-body img,
 .post-body figure,
 .post-body picture {
@@ -11,26 +16,112 @@
   -ms-user-select: none;
   user-select: none;
   pointer-events: none;
+  -webkit-user-drag: none;
 }
 
-/* 이미지 우클릭 방지 오버레이 (선택적) */
-figure {
+/* figure에 position: relative를 주어 ::after 오버레이가 정확히 덮이도록 함 */
+.post-body figure {
   position: relative;
+}
+
+/* 투명 오버레이: 우클릭 시 "이미지 주소 복사"·"이미지 저장" 메뉴가 나타나지 않게 함 */
+.post-body figure::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+}
+
+/* 인쇄 시 이미지 숨김 */
+@media print {
+  .post-body img,
+  .post-body figure {
+    display: none !important;
+  }
 }
 </style>
 
 <script>
-// 이미지 우클릭 방지
-document.addEventListener('contextmenu', function(e) {
-  if (e.target.tagName === 'IMG' || e.target.closest('figure') || e.target.closest('picture')) {
-    e.preventDefault();
-  }
-});
+//<![CDATA[
+(function() {
+  'use strict';
 
-// 이미지 드래그 방지
-document.addEventListener('dragstart', function(e) {
-  if (e.target.tagName === 'IMG') {
-    e.preventDefault();
-  }
-});
+  // === 이미지 보호: 우클릭·드래그·선택 방지 ===
+
+  // .post-body 영역 전체에서 우클릭 차단
+  document.addEventListener('contextmenu', function(e) {
+    if (e.target.closest('.post-body')) {
+      e.preventDefault();
+      return false;
+    }
+  });
+
+  // 이미지·figure 드래그 차단
+  document.addEventListener('dragstart', function(e) {
+    if (e.target.tagName === 'IMG' || e.target.closest('.post-body figure')) {
+      e.preventDefault();
+      return false;
+    }
+  });
+
+  // 이미지 주변 텍스트 선택 후 드래그 방지
+  document.addEventListener('selectstart', function(e) {
+    if (e.target.tagName === 'IMG' || e.target.closest('.post-body figure')) {
+      e.preventDefault();
+      return false;
+    }
+  });
+
+  // 이미지 복사(Ctrl+C) 방지
+  document.addEventListener('copy', function(e) {
+    var sel = window.getSelection();
+    if (sel && sel.toString().length > 0) {
+      // 텍스트 복사는 허용하되 이미지가 포함된 선택은 차단
+      var container = sel.getRangeAt(0).commonAncestorContainer;
+      if (container && (container.nodeName === 'IMG' || container.closest && container.closest('.post-body figure'))) {
+        e.preventDefault();
+        return false;
+      }
+    }
+  });
+
+  // === 키보드 단축키 차단 (개발자 도구 접근 지연) ===
+
+  document.addEventListener('keydown', function(e) {
+    // F12
+    if (e.key === 'F12') {
+      e.preventDefault();
+      return false;
+    }
+
+    // Ctrl+Shift+I (개발자 도구)
+    // Ctrl+Shift+J (콘솔)
+    // Ctrl+Shift+C (요소 검사)
+    if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c')) {
+      e.preventDefault();
+      return false;
+    }
+
+    // Ctrl+U (소스 보기)
+    if (e.ctrlKey && (e.key === 'U' || e.key === 'u')) {
+      e.preventDefault();
+      return false;
+    }
+
+    // Ctrl+S (페이지 저장)
+    if (e.ctrlKey && (e.key === 'S' || e.key === 's')) {
+      e.preventDefault();
+      return false;
+    }
+  });
+
+  // === 콘솔 경고 ===
+  var _0x = '이 사이트의 이미지는 저작권 보호를 받습니다.\n무단 사용을 금지합니다.';
+  console.log('%c' + _0x, 'color: red; font-size: 16px; font-weight: bold;');
+
+})();
+//]]>
 </script>
