@@ -6,28 +6,57 @@
 
 텔레그램 봇(`telegram-codex-bot`)은 메시지와 사진을 이 프로젝트 작업 디렉토리에서 실행 중인 Claude Code에 전달만 합니다. 모든 블로그 관련 처리는 Claude Code가 담당합니다.
 
+## 사진 파이프라인
+
+사진 처리는 블로그 글 작성과 독립적으로 동작하는 파이프라인이다. 다른 에이전트에서도 메타데이터에 접근할 수 있도록 결과를 파일로 저장한다.
+
+### 1단계: EXIF 메타데이터 추출
+
+```bash
+node scripts/extract-exif.js <이미지경로1> [이미지경로2] ... [--output <경로>]
+```
+
+- 사진에서 날짜, GPS 좌표, 카메라 정보를 추출한다.
+- `--output` 옵션으로 JSON 파일 경로를 지정하면 메타데이터를 파일로 저장한다 (예: `tmp/metadata-2026-05-09.json`).
+- `--output` 생략 시 stdout에만 출력한다.
+- 출력 포맷: `{ photos: [...], date_range: "...", gps_center: { lat, lng } }`
+- 다른 에이전트는 이 JSON 파일을 읽어서 날짜와 장소 정보를 활용할 수 있다.
+
+### 2단계: 이미지 처리 및 업로드
+
+```bash
+node scripts/upload-images.js <이미지경로1> [이미지경로2] ... [--date YYYY-MM-DD] [--slug 슬러그] [--max-size-kb N]
+```
+
+- WebP 포맷만 사용 (JPEG 폴백 없음)
+- 최대 1024x1024 리사이즈 (원본이 더 작으면 원본 크기 유지)
+- 워터마크 자동 삽입 (우측 하단, 반투명)
+- AdSense 파일 크기 기준: 이미지당 150KB 이하 (quality 80→70→60→50 순으로 자동 조절)
+- `--max-size-kb`로 기준 변경 가능 (기본값: 150)
+- 경로에 해시를 포함해 URL 추측 방지 (`posts/{date}-{hash12}/photo-NN.webp`)
+- 업로드 후 URL 검증 (최대 3회 재시도)
+
+종료 코드:
+- `extract-exif.js`: 0=성공, 1=일반 실패, 2=`--output` 쓰기 실패(stdout 미출력), 3=지원 이미지 없음
+- `upload-images.js`: 0=전부 정상, 1=업로드/검증 실패 있음, 4=fallback/oversize로 품질 저하(이미지 보호/AdSense 정책 점검 필요)
+
 ## 블로그 글 작성 워크플로우
 
-1. 사용자가 텔레그램에서 사진과 방문 메모를 보냄
-2. Claude Code가 `scripts/extract-exif.js`로 사진 메타데이터(EXIF)에서 날짜와 GPS 좌표를 추출
-3. EXIF 정보와 사용자 메모를 바탕으로 방문지 리서치 (`prompts/visit-research.md`)
+사진 파이프라인 완료 후 진행한다.
+
+1. EXIF 메타데이터와 사용자 메모를 바탕으로 방문지 리서치 (`prompts/visit-research.md`)
    - 공식 홈페이지 > 네이버/카카오 지도 > 관광공사 > 구글 검색 순으로 정보 수집
    - 식당/카페는 메뉴·가격 정보까지 수집
    - 주차 정보(무료/유료, 매장 이용 시 무료, 꿀팁)를 구조화하여 수집
-4. `prompts/` 디렉토리의 스타일 가이드와 시스템 규칙을 참고하여 초안 작성
+2. `prompts/` 디렉토리의 스타일 가이드와 시스템 규칙을 참고하여 초안 작성
    - SEO 라벨은 지역+장소명+카테고리+계절+동행 조합으로 자동 생성
    - 주차·꿀팁·메뉴 정보는 별도 섹션 없이 본문에 자연스럽게 녹임
    - 공식 홈페이지 링크는 실용 정보 근처나 마무리 단락에 배치
    - EXIF 날짜가 있으면 방문 날짜로 사용, GPS 좌표가 있으면 장소 확인에 활용
-5. `scripts/upload-images.js`로 이미지를 GitHub Pages에 업로드
-   - WebP 포맷만 사용 (JPEG 폴백 없음)
-   - 최대 1024x1024 리사이즈 (원본이 더 작으면 원본 크기 유지)
-   - 워터마크 자동 삽입 (우측 하단, 반투명)
-   - 경로에 해시를 포함해 URL 추측 방지
-6. `scripts/create-draft.js`로 Blogger에 초안 생성 (이미지 URL 검증 포함)
-7. 사용자가 수정을 요청하면 `scripts/update-post.js`로 기존 글 수정
+3. `scripts/create-draft.js`로 Blogger에 초안 생성 (이미지 URL 검증 포함)
+4. 사용자가 수정을 요청하면 `scripts/update-post.js`로 기존 글 수정
    - `--labels` 생략 시 기존 라벨 보존 (PATCH 요청에 labels 필드 미포함)
-8. 사용자가 승인하면 `scripts/publish-post.js`로 발행
+5. 사용자가 승인하면 `scripts/publish-post.js`로 발행
 
 ## 이미지 포맷 규칙
 
@@ -52,16 +81,18 @@
 ### EXIF 메타데이터 추출 (CLI)
 
 ```bash
-node scripts/extract-exif.js <이미지경로1> [이미지경로2] ...
+node scripts/extract-exif.js <이미지경로1> [이미지경로2] ... [--output tmp/metadata-YYYY-MM-DD.json]
 ```
 
-사진에서 날짜, GPS 좌표, 카메라 정보를 추출한다. 워크플로우 2단계에서 자동으로 활용한다.
+사진에서 날짜, GPS 좌표, 카메라 정보를 추출한다. `--output`으로 JSON 파일을 저장하면 다른 에이전트가 메타데이터를 활용할 수 있다.
 
 ### 이미지 업로드 (CLI)
 
 ```bash
-node scripts/upload-images.js <이미지경로1> [이미지경로2] ... [--date YYYY-MM-DD] [--slug 슬러그]
+node scripts/upload-images.js <이미지경로1> [이미지경로2] ... [--date YYYY-MM-DD] [--slug 슬러그] [--max-size-kb N]
 ```
+
+`--max-size-kb`로 AdSense 이미지 크기 기준을 변경할 수 있다 (기본값: 150KB, 허용 범위: 1~10000).
 
 ### Blogger 초안 생성 (CLI)
 

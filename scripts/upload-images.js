@@ -6,12 +6,13 @@ const { uploadBlogImages } = require('../lib/github-assets');
 const args = process.argv.slice(2);
 
 function printUsage() {
-  console.log('Usage: node upload-images.js <image1> [image2] ... [--date YYYY-MM-DD] [--slug slug] [--work-dir dir]');
+  console.log('Usage: node upload-images.js <image1> [image2] ... [--date YYYY-MM-DD] [--slug slug] [--work-dir dir] [--max-size-kb N]');
   console.log('');
   console.log('Options:');
-  console.log('  --date       게시일 (기본값: 오늘, YYYY-MM-DD 형식)');
-  console.log('  --slug       URL 슬러그 (기본값: 첫 번째 이미지 파일명에서 생성)');
-  console.log('  --work-dir   압축 이미지 임시 디렉토리 (기본값: ./tmp/assets/<date>-<slug>)');
+  console.log('  --date          게시일 (기본값: 오늘, YYYY-MM-DD 형식)');
+  console.log('  --slug          URL 슬러그 (기본값: 첫 번째 이미지 파일명에서 생성)');
+  console.log('  --work-dir      압축 이미지 임시 디렉토리 (기본값: ./tmp/assets/<date>-<slug>)');
+  console.log('  --max-size-kb   AdSense 이미지 크기 기준 KB (기본값: 150)');
   process.exit(1);
 }
 
@@ -21,19 +22,38 @@ function getArg(name) {
   return args[idx + 1];
 }
 
+const FLAGS_WITH_VALUE = new Set(['--date', '--slug', '--work-dir', '--max-size-kb']);
+
 function parseArgs() {
-  const FLAGS_WITH_VALUE = new Set(['--date', '--slug', '--work-dir']);
   const imagePaths = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (FLAGS_WITH_VALUE.has(a)) {
+      const value = args[i + 1];
+      if (!value || value.startsWith('--')) {
+        console.error(`Error: ${a} requires a value`);
+        printUsage();
+      }
       i += 1;
       continue;
     }
-    if (a.startsWith('--')) continue;
+    if (a.startsWith('--')) {
+      console.error(`Error: unknown option ${a}`);
+      printUsage();
+    }
     imagePaths.push(a);
   }
   return imagePaths;
+}
+
+function parseMaxSizeKB(raw) {
+  if (raw == null) return undefined;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0 || n > 10000) {
+    console.error(`Error: --max-size-kb must be a positive integer (1-10000), got "${raw}"`);
+    process.exit(1);
+  }
+  return n;
 }
 
 async function main() {
@@ -41,13 +61,13 @@ async function main() {
   const date = getArg('--date') || new Date().toISOString().slice(0, 10);
   const slug = getArg('--slug');
   const workDir = getArg('--work-dir');
+  const maxSizeKB = parseMaxSizeKB(getArg('--max-size-kb'));
 
   if (imagePaths.length === 0) {
     console.error('Error: at least one image path is required');
     printUsage();
   }
 
-  // 파일 존재 확인
   const fs = require('fs');
   for (const imgPath of imagePaths) {
     if (!fs.existsSync(imgPath)) {
@@ -59,21 +79,34 @@ async function main() {
   const options = { date };
   if (slug) options.slug = slug;
   if (workDir) options.workDir = workDir;
+  if (maxSizeKB !== undefined) options.maxSizeKB = maxSizeKB;
 
   console.log(`Uploading ${imagePaths.length} image(s)...`);
-  const result = await uploadBlogImages(imagePaths, options);
+  const { images, summary } = await uploadBlogImages(imagePaths, options);
 
-  console.log(JSON.stringify(result.map(item => ({
-    index: item.index,
-    originalPath: item.originalPath,
-    webpUrl: item.webpUrl,
-    jpgUrl: item.jpgUrl,
-    url: item.url,
-    originalBytes: item.originalBytes,
-    webpBytes: item.webpBytes,
-    jpgBytes: item.jpgBytes,
-    ...(item.error ? { error: item.error } : {}),
-  })), null, 2));
+  console.log(JSON.stringify({
+    images: images.map((item) => ({
+      index: item.index,
+      originalPath: item.originalPath,
+      webpUrl: item.webpUrl,
+      url: item.url,
+      originalBytes: item.originalBytes,
+      webpBytes: item.webpBytes,
+      ...(item.oversize ? { oversize: true } : {}),
+      ...(item.fallbackUsed ? {
+        fallbackUsed: true,
+        watermarkApplied: false,
+        orientationApplied: item.orientationApplied,
+      } : {}),
+      ...(item.compressionError ? { compressionError: item.compressionError } : {}),
+      ...(item.verificationError ? { verificationError: item.verificationError } : {}),
+      ...(item.error ? { error: item.error } : {}),
+    })),
+    summary,
+  }, null, 2));
+
+  if (summary.failed > 0) process.exit(1);
+  if (summary.degraded > 0) process.exit(4);
 }
 
 main().catch((err) => {

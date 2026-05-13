@@ -30,25 +30,36 @@ async function main() {
     .png()
     .toFile(sample);
 
-  const result = await uploadBlogImages([sample], {
+  const { images, summary } = await uploadBlogImages([sample], {
     date: new Date().toISOString().slice(0, 10),
     slug: 'asset-upload-test',
   });
 
-  console.log(JSON.stringify(result.map((item) => ({
-    index: item.index,
-    originalPath: item.originalPath,
-    webpUrl: item.webpUrl,
-    jpgUrl: item.jpgUrl,
-    url: item.url,
-    originalBytes: item.originalBytes,
-    webpBytes: item.webpBytes,
-    jpgBytes: item.jpgBytes,
-    ...(item.error ? { error: item.error } : {}),
-  })), null, 2));
+  console.log(JSON.stringify({
+    images: images.map((item) => ({
+      index: item.index,
+      originalPath: item.originalPath,
+      webpUrl: item.webpUrl,
+      url: item.url,
+      originalBytes: item.originalBytes,
+      webpBytes: item.webpBytes,
+      ...(item.oversize ? { oversize: true } : {}),
+      ...(item.fallbackUsed ? {
+        fallbackUsed: true,
+        watermarkApplied: false,
+        orientationApplied: item.orientationApplied,
+      } : {}),
+      ...(item.compressionError ? { compressionError: item.compressionError } : {}),
+      ...(item.verificationError ? { verificationError: item.verificationError } : {}),
+      ...(item.error ? { error: item.error } : {}),
+    })),
+    summary,
+  }, null, 2));
 
-  // 임시 파일 정리
   await fs.promises.rm(tempDir, { recursive: true, force: true });
+
+  if (summary.failed > 0) process.exit(1);
+  if (summary.degraded > 0) process.exit(4);
 }
 
 main().catch((err) => {
