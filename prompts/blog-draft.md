@@ -55,6 +55,8 @@ EXIF and photo metadata:
 - 방문 날짜(visit date) = `primary_date` from EXIF (the date the photos were taken). This is NOT the same as the current/writing date.
 - 시제와 표현: "지난 ○월 ○일", "○월 초", "○일 다녀온" 등 방문 날짜 기반으로 작성. 절대 "오늘 다녀왔다"라고 쓰지 말 것 (글 작성 시점과 사진 촬영 시점이 다를 수 있음).
 - If `primary_date` is null or missing, leave visit date vague ("최근", "얼마 전") and add a fact_check_note. Do NOT invent a date or default to today.
+- Confidence check: if `primary_date_source_count` / `primary_date_total_photos` < 0.5 (절반 이하 사진만 같은 날 EXIF), treat `primary_date` as low-confidence — use vague phrasing ("최근", "얼마 전") and add a fact_check_note that EXIF coverage is partial. Do NOT state a specific date.
+- Per-photo `date_status`: only photos with `date_status: "ok"` carry reliable timing. If you mention an exact moment ("점심 무렵", "해질 녘") tied to a specific image, prefer photos with `date_status: "ok"`. Photos with `missing` or `read_error` should not anchor timing claims.
 - If EXIF `date_range` spans multiple days, mention it naturally ("○월 ○일부터 ○일까지").
 - If EXIF GPS coordinates are available, use them to confirm or correct the place name and neighborhood context.
 - If camera model is available, do NOT mention it in the article unless the user explicitly asks.

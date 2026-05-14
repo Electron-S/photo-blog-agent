@@ -112,12 +112,11 @@ async function main() {
     dateSource = 'metadata';
     console.error(`[upload-images] 날짜=${date} (EXIF primary_date)`);
   } else {
-    date = today;
-    dateSource = 'today_fallback';
     const reason = metadata.reason === 'metadata_no_date'
       ? '--metadata는 제공됐지만 primary_date가 null (EXIF 날짜 없는 사진)'
       : '--date / --metadata 둘 다 없음';
-    console.error(`[upload-images] ERROR: ${reason} → 오늘(${today})로 fallback. 멱등성 깨짐, 폴더 경로가 작성 시점에 종속됨. exit code 5로 종료. 의도된 경우 --date를 명시하세요.`);
+    console.error(`[upload-images] ERROR: ${reason}. 오늘(${today})로 fallback할 경우 폴더 경로가 작성 시점에 종속되어 멱등성이 깨집니다. 업로드를 중단합니다 (exit 5). 의도된 경우 --date를 명시하세요.`);
+    process.exit(5);
   }
 
   const slug = getArg('--slug');
@@ -169,7 +168,6 @@ async function main() {
   }, null, 2));
 
   if (summary.failed > 0) process.exit(1);
-  if (dateSource === 'today_fallback') process.exit(5);
   if (summary.degraded > 0) process.exit(4);
 }
 

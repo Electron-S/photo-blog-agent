@@ -75,7 +75,7 @@ node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-
 ### 사진 날짜 vs 글 쓰는 날짜
 
 - 블로그 글의 방문 날짜 = `primary_date` (EXIF 촬영일). 글 작성 시점(오늘)과 혼동 금지.
-- `--date` 명시 > `--metadata`의 `primary_date` > 오늘 (마지막은 경고 출력).
+- `--date` 명시 > `--metadata`의 `primary_date` > 둘 다 없거나 primary_date가 null이면 **즉시 exit 5로 중단** (오늘 날짜 fallback이 멱등성을 깨므로 업로드 전에 차단).
 - 폴더 경로 `posts/{date}-{hash}`의 `{date}`도 EXIF 날짜를 따라야 같은 사진을 며칠 뒤 재업로드해도 같은 폴더를 가리킨다 (멱등성).
 
 ### 이미지 처리 정책
@@ -92,7 +92,7 @@ node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-
 | 스크립트 | 0 | 1 | 2 | 3 | 4 | 5 |
 |---|---|---|---|---|---|---|
 | `extract-exif.js` | 성공 | 일반 실패 | `--output` 쓰기 실패 | 지원 이미지 없음 | — | — |
-| `upload-images.js` | 전부 정상 | 업로드/검증 실패 | — | — | fallback/oversize (정책 점검) | 날짜 출처 today fallback (멱등성 깨짐) |
+| `upload-images.js` | 전부 정상 | 업로드/검증 실패 | — | — | fallback/oversize (정책 점검) | 날짜 출처 미상 — 업로드 거부 (멱등성 보호) |
 
 ## 블로그 글 작성 워크플로우
 

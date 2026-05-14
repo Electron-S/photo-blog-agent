@@ -28,7 +28,7 @@ node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --metada
 ```
 
 - **반드시 1단계의 `--output` JSON을 `--metadata`로 전달한다** — 그래야 사진 찍은 날짜가 폴더 경로에 반영되어 글 작성 시점과 분리된다.
-- 날짜 우선순위: `--date` 명시 > `--metadata`의 `primary_date` > 오늘 날짜(경고 출력)
+- 날짜 우선순위: `--date` 명시 > `--metadata`의 `primary_date` > **둘 다 없거나 primary_date가 null이면 즉시 exit 5로 중단** (오늘 날짜 fallback은 멱등성을 깨므로 차단). 의도된 경우 `--date`를 명시할 것.
 - `--slug`는 멱등성을 위해 한 번 정한 값을 유지할 것 (다른 slug로 재호출하면 중복 폴더가 생긴다)
 - WebP 포맷만 사용 (JPEG 폴백 없음)
 - 최대 1024x1024 리사이즈 (원본이 더 작으면 원본 크기 유지)
@@ -40,7 +40,7 @@ node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --metada
 
 종료 코드:
 - `extract-exif.js`: 0=성공, 1=일반 실패, 2=`--output` 쓰기 실패(stdout 미출력), 3=지원 이미지 없음
-- `upload-images.js`: 0=전부 정상, 1=업로드/검증 실패, 4=fallback/oversize 품질 저하, 5=날짜 출처가 today fallback (멱등성 깨짐 — `--metadata` 또는 `--date` 명시 필요)
+- `upload-images.js`: 0=전부 정상, 1=업로드/검증 실패, 4=fallback/oversize 품질 저하, 5=날짜 출처 미상으로 업로드 거부 (`--metadata` 또는 `--date` 명시 필요, 멱등성 보호)
 
 ## 블로그 글 작성 워크플로우
 
