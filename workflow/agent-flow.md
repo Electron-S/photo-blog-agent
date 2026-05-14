@@ -15,7 +15,7 @@
    - neighborhood_context: 동네 특성, 알려진 이유, 계절 특징
    - visitor_tips: 혼잡도, 추천 시간대, 일반 동선
    - review_signals: 외부 리뷰 공통 장단점, 전체 분위기
-6. Claude Code가 scripts/upload-images.js로 사진을 GitHub Pages에 업로드
+6. Claude Code가 scripts/extract-exif.js로 메타데이터를 JSON에 저장하고, 그 JSON을 scripts/upload-images.js의 --metadata로 전달 (EXIF 날짜 기반 폴더 경로)
 7. Claude Code가 블로그 초안을 JSON 형식으로 작성
 8. Claude Code가 scripts/create-draft.js로 Blogger에 초안 생성
 9. 사용자가 텔레그램에서 수정 요청
@@ -39,8 +39,14 @@
 ### 이미지 업로드
 
 ```bash
-node scripts/upload-images.js <이미지경로1> [이미지경로2] ... [--date YYYY-MM-DD] [--slug 슬러그]
+# 1단계: EXIF 추출 (메타데이터 JSON 저장)
+node scripts/extract-exif.js <이미지경로1> [이미지경로2] ... --output tmp/metadata-<날짜>.json
+
+# 2단계: 이미지 업로드 (--metadata로 EXIF 날짜 전달)
+node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --metadata tmp/metadata-<날짜>.json [--slug 슬러그]
 ```
+
+`--metadata` 또는 `--date`를 명시하지 않으면 오늘 날짜로 fallback되며 종료 코드 5로 종료된다 (멱등성 보장을 위해 의도적으로 실패 처리).
 
 ### Blogger 초안 생성
 

@@ -89,10 +89,10 @@ node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-
 
 ### 종료 코드
 
-| 스크립트 | 0 | 1 | 2 | 3 | 4 |
-|---|---|---|---|---|---|
-| `extract-exif.js` | 성공 | 일반 실패 | `--output` 쓰기 실패 | 지원 이미지 없음 | — |
-| `upload-images.js` | 전부 정상 | 업로드/검증 실패 | — | — | fallback/oversize 발생 (정책 점검 필요) |
+| 스크립트 | 0 | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|---|
+| `extract-exif.js` | 성공 | 일반 실패 | `--output` 쓰기 실패 | 지원 이미지 없음 | — | — |
+| `upload-images.js` | 전부 정상 | 업로드/검증 실패 | — | — | fallback/oversize (정책 점검) | 날짜 출처 today fallback (멱등성 깨짐) |
 
 ## 블로그 글 작성 워크플로우
 

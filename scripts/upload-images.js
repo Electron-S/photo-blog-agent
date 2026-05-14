@@ -60,7 +60,7 @@ function parseMaxSizeKB(raw) {
 }
 
 function readMetadataPrimaryDate(metadataPath) {
-  if (!metadataPath) return null;
+  if (!metadataPath) return { value: null, reason: 'no_metadata_arg' };
   const fs = require('fs');
   let raw;
   try {
@@ -76,28 +76,48 @@ function readMetadataPrimaryDate(metadataPath) {
     console.error(`Error: --metadata JSON 파싱 실패 (${metadataPath}): ${err.message}`);
     process.exit(1);
   }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    console.error(`Error: --metadata JSON이 객체가 아님 (${metadataPath}). extract-exif.js 출력 형식이 필요.`);
+    process.exit(1);
+  }
+  if (!('primary_date' in parsed)) {
+    console.error(`Error: --metadata JSON에 primary_date 키 없음 (${metadataPath}). extract-exif.js 버전을 확인하세요.`);
+    process.exit(1);
+  }
   const primaryDate = parsed.primary_date;
-  if (!primaryDate) return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(primaryDate)) {
+  if (primaryDate == null) {
+    return { value: null, reason: 'metadata_no_date' };
+  }
+  if (typeof primaryDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(primaryDate)) {
     console.error(`Error: --metadata primary_date 형식이 YYYY-MM-DD가 아님: "${primaryDate}"`);
     process.exit(1);
   }
-  return primaryDate;
+  return { value: primaryDate, reason: 'metadata' };
 }
 
 async function main() {
   const imagePaths = parseArgs();
-  const metadataDate = readMetadataPrimaryDate(getArg('--metadata'));
+  const metadata = readMetadataPrimaryDate(getArg('--metadata'));
   const explicitDate = getArg('--date');
   const today = new Date().toISOString().slice(0, 10);
-  const date = explicitDate || metadataDate || today;
 
+  let date;
+  let dateSource;
   if (explicitDate) {
+    date = explicitDate;
+    dateSource = 'explicit';
     console.error(`[upload-images] 날짜=${date} (--date 명시)`);
-  } else if (metadataDate) {
+  } else if (metadata.value) {
+    date = metadata.value;
+    dateSource = 'metadata';
     console.error(`[upload-images] 날짜=${date} (EXIF primary_date)`);
   } else {
-    console.error(`[upload-images] 경고: EXIF 날짜 정보 없음, 오늘 날짜(${today})로 fallback. 사진 찍은 날짜와 다를 수 있으니 --date 또는 --metadata 사용 권장.`);
+    date = today;
+    dateSource = 'today_fallback';
+    const reason = metadata.reason === 'metadata_no_date'
+      ? '--metadata는 제공됐지만 primary_date가 null (EXIF 날짜 없는 사진)'
+      : '--date / --metadata 둘 다 없음';
+    console.error(`[upload-images] ERROR: ${reason} → 오늘(${today})로 fallback. 멱등성 깨짐, 폴더 경로가 작성 시점에 종속됨. exit code 5로 종료. 의도된 경우 --date를 명시하세요.`);
   }
 
   const slug = getArg('--slug');
@@ -122,10 +142,12 @@ async function main() {
   if (workDir) options.workDir = workDir;
   if (maxSizeKB !== undefined) options.maxSizeKB = maxSizeKB;
 
-  console.log(`Uploading ${imagePaths.length} image(s)...`);
+  console.error(`Uploading ${imagePaths.length} image(s)...`);
   const { images, summary } = await uploadBlogImages(imagePaths, options);
 
   console.log(JSON.stringify({
+    date,
+    dateSource,
     images: images.map((item) => ({
       index: item.index,
       originalPath: item.originalPath,
@@ -147,6 +169,7 @@ async function main() {
   }, null, 2));
 
   if (summary.failed > 0) process.exit(1);
+  if (dateSource === 'today_fallback') process.exit(5);
   if (summary.degraded > 0) process.exit(4);
 }
 

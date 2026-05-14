@@ -40,7 +40,7 @@ node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --metada
 
 종료 코드:
 - `extract-exif.js`: 0=성공, 1=일반 실패, 2=`--output` 쓰기 실패(stdout 미출력), 3=지원 이미지 없음
-- `upload-images.js`: 0=전부 정상, 1=업로드/검증 실패 있음, 4=fallback/oversize로 품질 저하(이미지 보호/AdSense 정책 점검 필요)
+- `upload-images.js`: 0=전부 정상, 1=업로드/검증 실패, 4=fallback/oversize 품질 저하, 5=날짜 출처가 today fallback (멱등성 깨짐 — `--metadata` 또는 `--date` 명시 필요)
 
 ## 블로그 글 작성 워크플로우
 
@@ -94,10 +94,11 @@ node scripts/extract-exif.js <이미지경로1> [이미지경로2] ... [--output
 ### 이미지 업로드 (CLI)
 
 ```bash
-node scripts/upload-images.js <이미지경로1> [이미지경로2] ... [--date YYYY-MM-DD] [--slug 슬러그] [--max-size-kb N]
+node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --metadata tmp/metadata-<날짜>.json [--slug 슬러그] [--max-size-kb N]
 ```
 
-`--max-size-kb`로 AdSense 이미지 크기 기준을 변경할 수 있다 (기본값: 150KB, 허용 범위: 1~10000).
+- 반드시 `--metadata`로 1단계 출력을 연결할 것. 빠뜨리면 `--date`가 없을 때 오늘 날짜로 fallback되며 종료 코드 5로 종료된다.
+- `--max-size-kb`로 AdSense 이미지 크기 기준을 변경할 수 있다 (기본값: 150KB, 허용 범위: 1~10000).
 
 ### Blogger 초안 생성 (CLI)
 

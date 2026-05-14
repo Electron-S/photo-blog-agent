@@ -85,13 +85,20 @@ async function main() {
     }
     try {
       const info = await extractExif(imgPath);
-      photos.push(info);
+      photos.push({ ...info, date_status: info.date ? 'ok' : 'missing' });
     } catch (err) {
       console.error(`Error reading ${imgPath}: ${err.message}`);
-      photos.push({ file: path.basename(imgPath), date: null, gps: null, camera: null });
+      photos.push({
+        file: path.basename(imgPath),
+        date: null,
+        gps: null,
+        camera: null,
+        date_status: 'read_error',
+      });
     }
   }
 
+  let primaryDateSourceCount = 0;
   const dateDays = photos.map((p) => (p.date ? p.date.slice(0, 10) : null)).filter(Boolean).sort();
   if (dateDays.length > 0) {
     dateRange = dateDays[0] === dateDays[dateDays.length - 1]
@@ -101,8 +108,15 @@ async function main() {
     // primary_date = 가장 많이 촬영된 날짜. 동률이면 가장 이른 날짜.
     const counts = new Map();
     for (const d of dateDays) counts.set(d, (counts.get(d) || 0) + 1);
-    primaryDate = [...counts.entries()]
-      .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))[0][0];
+    const [topDate, topCount] = [...counts.entries()]
+      .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))[0];
+    primaryDate = topDate;
+    primaryDateSourceCount = topCount;
+  }
+
+  const photosWithDate = photos.filter((p) => p.date_status === 'ok').length;
+  if (photos.length > 0 && photosWithDate * 2 < photos.length) {
+    console.error(`Warning: EXIF 날짜를 가진 사진이 ${photosWithDate}/${photos.length}장에 불과합니다. primary_date 신뢰도가 낮습니다.`);
   }
 
   const gpsPoints = photos.map((p) => p.gps).filter(Boolean);
@@ -116,6 +130,8 @@ async function main() {
   const result = {
     photos,
     primary_date: primaryDate,
+    primary_date_source_count: primaryDateSourceCount,
+    primary_date_total_photos: photos.length,
     date_range: dateRange,
     gps_center: gpsCenter,
   };

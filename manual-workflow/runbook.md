@@ -10,10 +10,15 @@ Claude Code를 사용해 Blogger 글 품질과 운영 흐름을 검증합니다.
 2. Claude Code가 사진을 분석하고 방문지를 파악합니다.
 3. Claude Code가 방문지 공식 정보를 리서치합니다.
 4. [input-template.md](input-template.md)를 참고해 Claude Code에 추가 정보를 제공합니다.
-5. Claude Code가 이미지를 압축하고 GitHub Pages에 업로드합니다:
+5. Claude Code가 EXIF 메타데이터를 추출하고 이미지를 압축하여 GitHub Pages에 업로드합니다:
    ```bash
-   node scripts/upload-images.js <이미지경로들> --slug <슬러그>
+   # 1단계: EXIF 추출 (JSON 저장)
+   node scripts/extract-exif.js <이미지경로들> --output tmp/metadata-<날짜>.json
+
+   # 2단계: --metadata로 EXIF 날짜를 폴더 경로에 반영
+   node scripts/upload-images.js <이미지경로들> --metadata tmp/metadata-<날짜>.json --slug <슬러그>
    ```
+   `--metadata` 또는 `--date`를 빠뜨리면 종료 코드 5로 종료됩니다 (오늘 날짜 fallback 방지).
 6. Claude Code가 프롬프트 파일을 읽고 Blogger 초안을 작성합니다.
 7. Claude Code가 Blogger에 초안을 생성합니다:
    ```bash
