@@ -13,21 +13,23 @@
 ### 1단계: EXIF 메타데이터 추출
 
 ```bash
-node scripts/extract-exif.js <이미지경로1> [이미지경로2] ... [--output <경로>]
+node scripts/extract-exif.js <이미지경로1> [이미지경로2] ... --output tmp/metadata-<날짜>.json
 ```
 
 - 사진에서 날짜, GPS 좌표, 카메라 정보를 추출한다.
-- `--output` 옵션으로 JSON 파일 경로를 지정하면 메타데이터를 파일로 저장한다 (예: `tmp/metadata-2026-05-09.json`).
-- `--output` 생략 시 stdout에만 출력한다.
-- 출력 포맷: `{ photos: [...], date_range: "...", gps_center: { lat, lng } }`
-- 다른 에이전트는 이 JSON 파일을 읽어서 날짜와 장소 정보를 활용할 수 있다.
+- `--output`으로 JSON 파일을 저장해야 2단계에서 `--metadata`로 재사용할 수 있다.
+- 출력 포맷: `{ photos: [...], primary_date: "YYYY-MM-DD", date_range: "...", gps_center: { lat, lng } }`
+- **`primary_date`** = 가장 많이 촬영된 단일 날짜 (동률이면 가장 이른 날). 이 값이 블로그 글의 방문 날짜이자 폴더 경로의 날짜다.
 
 ### 2단계: 이미지 처리 및 업로드
 
 ```bash
-node scripts/upload-images.js <이미지경로1> [이미지경로2] ... [--date YYYY-MM-DD] [--slug 슬러그] [--max-size-kb N]
+node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --metadata tmp/metadata-<날짜>.json [--slug 슬러그] [--max-size-kb N]
 ```
 
+- **반드시 1단계의 `--output` JSON을 `--metadata`로 전달한다** — 그래야 사진 찍은 날짜가 폴더 경로에 반영되어 글 작성 시점과 분리된다.
+- 날짜 우선순위: `--date` 명시 > `--metadata`의 `primary_date` > 오늘 날짜(경고 출력)
+- `--slug`는 멱등성을 위해 한 번 정한 값을 유지할 것 (다른 slug로 재호출하면 중복 폴더가 생긴다)
 - WebP 포맷만 사용 (JPEG 폴백 없음)
 - 최대 1024x1024 리사이즈 (원본이 더 작으면 원본 크기 유지)
 - 워터마크 자동 삽입 (우측 하단, 반투명)
@@ -52,7 +54,10 @@ node scripts/upload-images.js <이미지경로1> [이미지경로2] ... [--date 
    - SEO 라벨은 지역+장소명+카테고리+계절+동행 조합으로 자동 생성
    - 주차·꿀팁·메뉴 정보는 별도 섹션 없이 본문에 자연스럽게 녹임
    - 공식 홈페이지 링크는 실용 정보 근처나 마무리 단락에 배치
-   - EXIF 날짜가 있으면 방문 날짜로 사용, GPS 좌표가 있으면 장소 확인에 활용
+   - **방문 날짜 = metadata의 `primary_date`** (EXIF 촬영 날짜). 글 작성 시점(오늘)과 절대 혼동하지 말 것
+   - "오늘 다녀왔다" 같은 표현 금지. "지난 ○월 ○일", "○월 초" 등 EXIF 기반 표현 사용
+   - `primary_date`가 null이면 방문 날짜를 "확인 필요"로 두고 임의 날짜를 만들지 말 것
+   - GPS 좌표가 있으면 장소 확인에 활용
 3. `scripts/create-draft.js`로 Blogger에 초안 생성 (이미지 URL 검증 포함)
 4. 사용자가 수정을 요청하면 `scripts/update-post.js`로 기존 글 수정
    - `--labels` 생략 시 기존 라벨 보존 (PATCH 요청에 labels 필드 미포함)

@@ -13,7 +13,7 @@ Inputs:
 - Internet research summary from official or trusted sources
 - External review summary, if available
 - User notes
-- Photo EXIF metadata (date, GPS coordinates, camera) — use this to verify and enrich visit date and location
+- Photo EXIF metadata (`primary_date`, `date_range`, GPS coordinates, camera) — `primary_date` is the canonical visit date. Never use the current/writing date as the visit date.
 - Required SEO keywords
 
 Return only one valid JSON object. Do not wrap it in Markdown fences.
@@ -52,7 +52,10 @@ Writing requirements:
 - If the available notes/photos are too thin for a good draft, still return valid JSON, but put the gap in fact_check_notes instead of inventing details.
 
 EXIF and photo metadata:
-- If EXIF date is available, use it as the visit date in the article. Override any user-provided date if EXIF is more precise.
+- 방문 날짜(visit date) = `primary_date` from EXIF (the date the photos were taken). This is NOT the same as the current/writing date.
+- 시제와 표현: "지난 ○월 ○일", "○월 초", "○일 다녀온" 등 방문 날짜 기반으로 작성. 절대 "오늘 다녀왔다"라고 쓰지 말 것 (글 작성 시점과 사진 촬영 시점이 다를 수 있음).
+- If `primary_date` is null or missing, leave visit date vague ("최근", "얼마 전") and add a fact_check_note. Do NOT invent a date or default to today.
+- If EXIF `date_range` spans multiple days, mention it naturally ("○월 ○일부터 ○일까지").
 - If EXIF GPS coordinates are available, use them to confirm or correct the place name and neighborhood context.
 - If camera model is available, do NOT mention it in the article unless the user explicitly asks.
 

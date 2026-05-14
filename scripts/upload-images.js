@@ -6,13 +6,16 @@ const { uploadBlogImages } = require('../lib/github-assets');
 const args = process.argv.slice(2);
 
 function printUsage() {
-  console.log('Usage: node upload-images.js <image1> [image2] ... [--date YYYY-MM-DD] [--slug slug] [--work-dir dir] [--max-size-kb N]');
+  console.log('Usage: node upload-images.js <image1> [image2] ... [--metadata path] [--date YYYY-MM-DD] [--slug slug] [--work-dir dir] [--max-size-kb N]');
   console.log('');
   console.log('Options:');
-  console.log('  --date          게시일 (기본값: 오늘, YYYY-MM-DD 형식)');
+  console.log('  --metadata      extract-exif.js 출력 JSON 경로. primary_date를 게시일 기본값으로 사용');
+  console.log('  --date          게시일 (--metadata의 primary_date보다 우선, 기본값: 오늘)');
   console.log('  --slug          URL 슬러그 (기본값: 첫 번째 이미지 파일명에서 생성)');
   console.log('  --work-dir      압축 이미지 임시 디렉토리 (기본값: ./tmp/assets/<date>-<slug>)');
   console.log('  --max-size-kb   AdSense 이미지 크기 기준 KB (기본값: 150)');
+  console.log('');
+  console.log('날짜 우선순위: --date > --metadata의 primary_date > 오늘');
   process.exit(1);
 }
 
@@ -22,7 +25,7 @@ function getArg(name) {
   return args[idx + 1];
 }
 
-const FLAGS_WITH_VALUE = new Set(['--date', '--slug', '--work-dir', '--max-size-kb']);
+const FLAGS_WITH_VALUE = new Set(['--metadata', '--date', '--slug', '--work-dir', '--max-size-kb']);
 
 function parseArgs() {
   const imagePaths = [];
@@ -56,9 +59,47 @@ function parseMaxSizeKB(raw) {
   return n;
 }
 
+function readMetadataPrimaryDate(metadataPath) {
+  if (!metadataPath) return null;
+  const fs = require('fs');
+  let raw;
+  try {
+    raw = fs.readFileSync(metadataPath, 'utf-8');
+  } catch (err) {
+    console.error(`Error: --metadata 파일을 읽을 수 없음 (${metadataPath}): ${err.message}`);
+    process.exit(1);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    console.error(`Error: --metadata JSON 파싱 실패 (${metadataPath}): ${err.message}`);
+    process.exit(1);
+  }
+  const primaryDate = parsed.primary_date;
+  if (!primaryDate) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(primaryDate)) {
+    console.error(`Error: --metadata primary_date 형식이 YYYY-MM-DD가 아님: "${primaryDate}"`);
+    process.exit(1);
+  }
+  return primaryDate;
+}
+
 async function main() {
   const imagePaths = parseArgs();
-  const date = getArg('--date') || new Date().toISOString().slice(0, 10);
+  const metadataDate = readMetadataPrimaryDate(getArg('--metadata'));
+  const explicitDate = getArg('--date');
+  const today = new Date().toISOString().slice(0, 10);
+  const date = explicitDate || metadataDate || today;
+
+  if (explicitDate) {
+    console.error(`[upload-images] 날짜=${date} (--date 명시)`);
+  } else if (metadataDate) {
+    console.error(`[upload-images] 날짜=${date} (EXIF primary_date)`);
+  } else {
+    console.error(`[upload-images] 경고: EXIF 날짜 정보 없음, 오늘 날짜(${today})로 fallback. 사진 찍은 날짜와 다를 수 있으니 --date 또는 --metadata 사용 권장.`);
+  }
+
   const slug = getArg('--slug');
   const workDir = getArg('--work-dir');
   const maxSizeKB = parseMaxSizeKB(getArg('--max-size-kb'));

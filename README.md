@@ -41,14 +41,14 @@
 | `npm run assets:upload` | 이미지 압축 & GitHub Pages 업로드 (`--date`, `--slug`, `--max-size-kb`) |
 | `npm run assets:test` | 업로드 테스트 |
 
-CLI 직접 호출:
+CLI 직접 호출 (1단계의 출력을 2단계 `--metadata`로 연결해야 EXIF 날짜가 일관되게 사용됨):
 
 ```bash
-# EXIF 메타데이터 추출 (날짜/GPS/카메라 정보)
-node scripts/extract-exif.js <이미지경로...> [--output tmp/metadata.json]
+# 1단계: EXIF 메타데이터 추출 (날짜/GPS/카메라 정보 → JSON 저장)
+node scripts/extract-exif.js <이미지경로...> --output tmp/metadata-2026-05-05.json
 
-# 이미지 처리 & GitHub Pages 업로드
-node scripts/upload-images.js <이미지경로...> [--date YYYY-MM-DD] [--slug 슬러그] [--max-size-kb N]
+# 2단계: 이미지 처리 & GitHub Pages 업로드 (--metadata로 1단계 결과 연결)
+node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-05-05.json [--slug 슬러그] [--max-size-kb N]
 ```
 
 ### 라이브러리 (`lib/`)
@@ -69,8 +69,14 @@ node scripts/upload-images.js <이미지경로...> [--date YYYY-MM-DD] [--slug �
 
 블로그 글 작성과 독립적으로 동작하며, 다른 에이전트도 메타데이터를 활용할 수 있도록 결과를 JSON 파일로 저장한다.
 
-1. **EXIF 메타데이터 추출** (`extract-exif.js`) — 날짜, GPS, 카메라 정보를 추출.
-2. **이미지 처리 & 업로드** (`upload-images.js`) — WebP 변환, 리사이즈, 워터마크, GitHub Pages 업로드.
+1. **EXIF 메타데이터 추출** (`extract-exif.js`) — 날짜, GPS, 카메라 정보 추출. 결과 JSON에 `primary_date`(가장 많이 촬영된 날짜)를 포함.
+2. **이미지 처리 & 업로드** (`upload-images.js`) — `--metadata`로 1단계 결과를 받아 EXIF 날짜를 폴더 경로에 반영. WebP 변환, 리사이즈, 워터마크, GitHub Pages 업로드.
+
+### 사진 날짜 vs 글 쓰는 날짜
+
+- 블로그 글의 방문 날짜 = `primary_date` (EXIF 촬영일). 글 작성 시점(오늘)과 혼동 금지.
+- `--date` 명시 > `--metadata`의 `primary_date` > 오늘 (마지막은 경고 출력).
+- 폴더 경로 `posts/{date}-{hash}`의 `{date}`도 EXIF 날짜를 따라야 같은 사진을 며칠 뒤 재업로드해도 같은 폴더를 가리킨다 (멱등성).
 
 ### 이미지 처리 정책
 

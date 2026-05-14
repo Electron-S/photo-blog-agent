@@ -75,6 +75,7 @@ async function extractExif(imagePath) {
 async function main() {
   const photos = [];
   let dateRange = null;
+  let primaryDate = null;
   let gpsCenter = null;
 
   for (const imgPath of imagePaths) {
@@ -91,14 +92,20 @@ async function main() {
     }
   }
 
-  // Calculate date range
-  const dates = photos.map(p => p.date).filter(Boolean).sort();
-  if (dates.length > 0) {
-    dateRange = dates.length === 1 ? dates[0].slice(0, 10) : `${dates[0].slice(0, 10)} ~ ${dates[dates.length - 1].slice(0, 10)}`;
+  const dateDays = photos.map((p) => (p.date ? p.date.slice(0, 10) : null)).filter(Boolean).sort();
+  if (dateDays.length > 0) {
+    dateRange = dateDays[0] === dateDays[dateDays.length - 1]
+      ? dateDays[0]
+      : `${dateDays[0]} ~ ${dateDays[dateDays.length - 1]}`;
+
+    // primary_date = 가장 많이 촬영된 날짜. 동률이면 가장 이른 날짜.
+    const counts = new Map();
+    for (const d of dateDays) counts.set(d, (counts.get(d) || 0) + 1);
+    primaryDate = [...counts.entries()]
+      .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))[0][0];
   }
 
-  // Calculate GPS center point
-  const gpsPoints = photos.map(p => p.gps).filter(Boolean);
+  const gpsPoints = photos.map((p) => p.gps).filter(Boolean);
   if (gpsPoints.length > 0) {
     gpsCenter = {
       lat: Number((gpsPoints.reduce((s, g) => s + g.lat, 0) / gpsPoints.length).toFixed(4)),
@@ -108,6 +115,7 @@ async function main() {
 
   const result = {
     photos,
+    primary_date: primaryDate,
     date_range: dateRange,
     gps_center: gpsCenter,
   };
