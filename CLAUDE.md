@@ -4,7 +4,7 @@
 
 ## 아키텍처
 
-텔레그램 봇(`telegram-codex-bot`)은 메시지와 사진을 이 프로젝트 작업 디렉토리에서 실행 중인 Claude Code에 전달만 합니다. 모든 블로그 관련 처리는 Claude Code가 담당합니다.
+텔레그램 봇(`cy-telegram-bot`, `/blog` 모드)이 메시지와 사진을 이 프로젝트 작업 디렉토리에서 실행 중인 Claude Code에 전달만 합니다. 모든 블로그 관련 처리는 Claude Code가 담당합니다.
 
 ## 사진 파이프라인
 
