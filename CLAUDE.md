@@ -97,7 +97,7 @@ node scripts/extract-exif.js <이미지경로1> [이미지경로2] ... [--output
 node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --metadata tmp/metadata-<날짜>.json [--slug 슬러그] [--max-size-kb N]
 ```
 
-- 반드시 `--metadata`로 1단계 출력을 연결할 것. 빠뜨리면 `--date`가 없을 때 오늘 날짜로 fallback되며 종료 코드 5로 종료된다.
+- 반드시 `--metadata`로 1단계 출력을 연결할 것. `--date`도 `--metadata`도 없으면 (또는 metadata의 `primary_date`가 null이면) **업로드 전에 즉시 exit 5로 거부**된다 (네트워크 호출 없이 fail-fast — 멱등성 보호).
 - `--max-size-kb`로 AdSense 이미지 크기 기준을 변경할 수 있다 (기본값: 150KB, 허용 범위: 1~10000).
 
 ### Blogger 초안 생성 (CLI)

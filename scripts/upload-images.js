@@ -9,13 +9,13 @@ function printUsage() {
   console.log('Usage: node upload-images.js <image1> [image2] ... [--metadata path] [--date YYYY-MM-DD] [--slug slug] [--work-dir dir] [--max-size-kb N]');
   console.log('');
   console.log('Options:');
-  console.log('  --metadata      extract-exif.js 출력 JSON 경로. primary_date를 게시일 기본값으로 사용');
-  console.log('  --date          게시일 (--metadata의 primary_date보다 우선, 기본값: 오늘)');
+  console.log('  --metadata      extract-exif.js 출력 JSON 경로. primary_date를 게시일로 사용');
+  console.log('  --date          게시일 (--metadata의 primary_date보다 우선; 둘 다 없거나 null이면 exit 5)');
   console.log('  --slug          URL 슬러그 (기본값: 첫 번째 이미지 파일명에서 생성)');
   console.log('  --work-dir      압축 이미지 임시 디렉토리 (기본값: ./tmp/assets/<date>-<slug>)');
   console.log('  --max-size-kb   AdSense 이미지 크기 기준 KB (기본값: 150)');
   console.log('');
-  console.log('날짜 우선순위: --date > --metadata의 primary_date > 오늘');
+  console.log('날짜 우선순위: --date > --metadata의 primary_date > (없으면 exit 5, 멱등성 보호)');
   process.exit(1);
 }
 

@@ -46,7 +46,7 @@ node scripts/extract-exif.js <이미지경로1> [이미지경로2] ... --output 
 node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --metadata tmp/metadata-<날짜>.json [--slug 슬러그]
 ```
 
-`--metadata` 또는 `--date`를 명시하지 않으면 오늘 날짜로 fallback되며 종료 코드 5로 종료된다 (멱등성 보장을 위해 의도적으로 실패 처리).
+`--metadata` 또는 `--date`를 명시하지 않으면 (또는 metadata의 `primary_date`가 null이면) **업로드 전에 즉시 exit 5로 거부된다** (네트워크 호출 없이 fail-fast — 멱등성 보호).
 
 ### Blogger 초안 생성
 
