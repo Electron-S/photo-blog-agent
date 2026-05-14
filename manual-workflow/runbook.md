@@ -18,7 +18,7 @@ Claude Code를 사용해 Blogger 글 품질과 운영 흐름을 검증합니다.
    # 2단계: --metadata로 EXIF 날짜를 폴더 경로에 반영
    node scripts/upload-images.js <이미지경로들> --metadata tmp/metadata-<날짜>.json --slug <슬러그>
    ```
-   `--metadata` 또는 `--date`를 빠뜨리면 종료 코드 5로 종료됩니다 (오늘 날짜 fallback 방지).
+   `--metadata` 또는 `--date`를 빠뜨리면 (또는 metadata의 `primary_date`가 null이면) **업로드 전에 즉시 exit 5로 거부**됩니다 (네트워크 호출 없이 fail-fast — 멱등성 보호).
 6. Claude Code가 프롬프트 파일을 읽고 Blogger 초안을 작성합니다.
 7. Claude Code가 Blogger에 초안을 생성합니다:
    ```bash
