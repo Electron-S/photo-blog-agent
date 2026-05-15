@@ -64,6 +64,8 @@ node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --metada
 4. 사용자가 수정을 요청하면 `scripts/update-post.js`로 기존 글 수정
    - `--labels` 생략 시 기존 라벨 보존 (PATCH 요청에 labels 필드 미포함)
 5. 사용자가 승인하면 `scripts/publish-post.js`로 발행
+   - **`--slug-from-date tmp/metadata-<날짜>.json`을 함께 전달**해서 URL 슬러그를 `YYYY-MM-DD.html` 형식으로 강제 (자세한 규칙은 아래 "Blogger 글 발행" 섹션 참조)
+   - `primary_date`가 null이면 `--slug`로 직접 날짜 지정
 
 ## 이미지 포맷 규칙
 
@@ -121,8 +123,21 @@ node scripts/update-post.js --post-id POST_ID [--title "수정제목"] [--conten
 ### Blogger 글 발행 (CLI)
 
 ```bash
+# 사진 촬영 날짜를 URL 슬러그로 사용 (권장)
+node scripts/publish-post.js --post-id POST_ID --slug-from-date tmp/metadata-<날짜>.json
+
+# 슬러그 직접 지정
+node scripts/publish-post.js --post-id POST_ID --slug 2026-05-10
+
+# 기본 (Blogger 자동 슬러그 — title에서 파생)
 node scripts/publish-post.js --post-id POST_ID
 ```
+
+- URL 컨벤션: `YYYY-MM-DD.html` (zero-padded). 사진 촬영 날짜 기반이라 글 작성 시점과 분리되고 정렬도 자연스러움.
+- Blogger API는 customPermalink를 공식 지원하지 않으므로 우회 트릭 사용: 발행 직전 title을 슬러그(YYYY-MM-DD)로 patch → publish → title 원복. Blogger가 발행 시점 title로 URL을 고정하고 이후 title 변경은 URL에 영향 없음에 의존.
+- 슬러그는 영문/숫자/하이픈만 허용. `--slug-from-date`의 metadata `primary_date`가 null이면 fail.
+- 같은 날짜의 두 번째 글은 Blogger가 자동으로 `-1`, `-2` 등의 suffix 추가.
+- 발행 결과 URL이 요청 슬러그와 다르면 경고만 출력 (작업은 진행됨).
 
 ## 프롬프트 파일
 
