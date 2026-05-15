@@ -16,11 +16,40 @@ function printUsage() {
 
 function getArg(name) {
   const idx = args.indexOf(name);
-  if (idx === -1 || idx + 1 >= args.length) return null;
-  return args[idx + 1];
+  if (idx === -1) return null;
+  if (idx + 1 >= args.length) {
+    console.error(`Error: ${name}에 값이 필요합니다.`);
+    process.exit(1);
+  }
+  // 다음 토큰이 `--`로 시작하면 값 누락 — silent하게 다음 플래그를 값으로 채택하면 사고가 난다.
+  const val = args[idx + 1];
+  if (val.startsWith('--')) {
+    console.error(`Error: ${name}의 값으로 또 다른 플래그 "${val}"가 들어왔습니다. 값을 명시하세요.`);
+    process.exit(1);
+  }
+  return val;
+}
+
+// 알 수 없는 플래그(typo)나 중복 지정을 silent하게 흘리지 않도록 시작 시 한 번 검증.
+function validateKnownFlags(known) {
+  const seen = new Set();
+  for (const arg of args) {
+    if (!arg.startsWith('--')) continue;
+    if (!known.includes(arg)) {
+      console.error(`Error: 알 수 없는 플래그 "${arg}". 사용 가능: ${known.join(', ')}`);
+      process.exit(1);
+    }
+    if (seen.has(arg)) {
+      console.error(`Error: 플래그 "${arg}"가 중복 지정되었습니다.`);
+      process.exit(1);
+    }
+    seen.add(arg);
+  }
 }
 
 async function main() {
+  validateKnownFlags(['--title', '--content', '--labels']);
+
   let title = getArg('--title');
   let content = getArg('--content');
   const labelsArg = getArg('--labels');
@@ -35,9 +64,14 @@ async function main() {
     printUsage();
   }
 
-  // content가 파일 경로면 파일 내용을 읽음
+  // content가 '<'를 포함하지 않으면 인라인 HTML이 아니므로 파일 경로로 간주.
+  // 존재하지 않으면 fail-fast — 경로 문자열을 본문으로 그대로 PUT하는 사고 방지.
   const fs = require('fs');
-  if (content.startsWith('/') || content.startsWith('./') || content.startsWith('../')) {
+  if (!content.includes('<')) {
+    if (!fs.existsSync(content)) {
+      console.error(`Error: --content에 '<'가 없어 파일 경로로 해석했지만 "${content}"가 존재하지 않습니다. 인라인 HTML 또는 실제 파일 경로를 넘기세요.`);
+      process.exit(1);
+    }
     try {
       content = fs.readFileSync(content, 'utf8');
     } catch (err) {
@@ -74,7 +108,9 @@ async function main() {
 }
 
 main().catch((err) => {
-  const details = err.response?.data ? JSON.stringify(err.response.data) : err.message;
-  console.error('Draft creation failed:', details);
+  console.error('Draft creation failed:', err.message);
+  if (err.response?.data) {
+    console.error('API response:', JSON.stringify(err.response.data));
+  }
   process.exit(1);
 });
