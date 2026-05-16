@@ -39,6 +39,9 @@ Writing requirements:
 - Avoid ad-click encouragement.
 - Use proper names for well-known landmarks and buildings visible in photos or near the visit location. "롯데타워", not "큰 건물". If the landmark name is uncertain, mark it as "확인 필요".
 - Do not state obvious facts in a preachy tone. Information that readers already know should be woven in naturally, not presented as instruction.
+- Break the body into readable chunks. Each `<p>` should normally be 2-4 sentences (about 250 Korean characters or fewer); if one paragraph mixes two topics (예: 음식 묘사 + 주문 팁) or runs longer, split it.
+- Insert at least three `<h3>` subheadings between the intro and the closing section when the body is 1,500+ characters. Place them where the topic shifts (분위기 → 메뉴 → 실용 정보 → 마무리), not as arbitrary slicers. Use natural phrasing ("호텔 지하인데 답답하지 않다"), not mechanical labels ("메뉴 정보", "주차 안내").
+- Never place an `<h3>` immediately after an `<img>`/`<figure>`. Subheadings always come after a text paragraph and before the next image, so AdSense's "2+ sentences between image and ad" rule is preserved.
 - Insert images directly with Blogger-compatible <figure>, <img>, and <figcaption> HTML.
 - Use provided WebP image URLs in order. All images are WebP format — use a plain <img> tag with the WebP URL as src.
 - If a WebP URL is null or missing for an image, skip that image entirely rather than inventing a URL.
