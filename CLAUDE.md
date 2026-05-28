@@ -43,6 +43,7 @@ node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --metada
 종료 코드:
 - `extract-exif.js`: 0=성공, 1=일반 실패, 2=`--output` 쓰기 실패(stdout 미출력), 3=지원 이미지 없음
 - `upload-images.js`: 0=전부 정상, 1=업로드/검증 실패, 4=fallback/oversize 품질 저하, 5=날짜 출처 미상으로 업로드 거부 (`--metadata` 또는 `--date` 명시 필요, 멱등성 보호)
+- `publish-post.js`: 0=성공, 1=일반 실패, 6=`--slug`/`--slug-from-date` 미지정 거부, 7=슬러그 검증 실패 (LIVE 영구 고정 URL과 mismatch 또는 발행 후 사후 검증 mismatch — 자동 suffix `-N`은 통과)
 
 ## 블로그 글 작성 워크플로우
 
@@ -64,8 +65,9 @@ node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --metada
 4. 사용자가 수정을 요청하면 `scripts/update-post.js`로 기존 글 수정
    - `--labels` 생략 시 기존 라벨 보존 (PATCH 요청에 labels 필드 미포함)
 5. 사용자가 승인하면 `scripts/publish-post.js`로 발행
-   - **`--slug-from-date tmp/metadata-<날짜>.json`을 함께 전달**해서 URL 슬러그를 `YYYY-MM-DD.html` 형식으로 강제 (자세한 규칙은 아래 "Blogger 글 발행" 섹션 참조)
-   - `primary_date`가 null이면 `--slug`로 직접 날짜 지정
+   - **`--slug-from-date` 또는 `--slug` 중 하나는 반드시 동반**한다. 둘 다 없으면 `publish-post.js`가 exit 6으로 fail-fast 종료한다 (아래 "URL 슬러그 — 절대 규칙" 참조).
+   - 기본 경로: `--slug-from-date tmp/metadata-<날짜>.json` → 슬러그를 `YYYY-MM-DD` (촬영 날짜) 로 강제
+   - `primary_date`가 null이면 `--slug 2026-05-10` 형태로 직접 지정
 
 ## 이미지 포맷 규칙
 
@@ -123,21 +125,31 @@ node scripts/update-post.js --post-id POST_ID [--title "수정제목"] [--conten
 ### Blogger 글 발행 (CLI)
 
 ```bash
-# 사진 촬영 날짜를 URL 슬러그로 사용 (권장)
+# 사진 촬영 날짜를 URL 슬러그로 사용 (기본 경로)
 node scripts/publish-post.js --post-id POST_ID --slug-from-date tmp/metadata-<날짜>.json
 
-# 슬러그 직접 지정
+# 슬러그 직접 지정 (metadata의 primary_date가 null일 때)
 node scripts/publish-post.js --post-id POST_ID --slug 2026-05-10
-
-# 기본 (Blogger 자동 슬러그 — title에서 파생)
-node scripts/publish-post.js --post-id POST_ID
 ```
 
+- **`--slug`/`--slug-from-date` 중 하나는 필수.** 둘 다 없으면 exit 6으로 거부 — Blogger 자동 슬러그(title 기반 한글)는 영구 고정되어 나중에 절대 못 바꾼다.
 - URL 컨벤션: `YYYY-MM-DD.html` (zero-padded). 사진 촬영 날짜 기반이라 글 작성 시점과 분리되고 정렬도 자연스러움.
 - Blogger API는 customPermalink를 공식 지원하지 않으므로 우회 트릭 사용: 발행 직전 title을 슬러그(YYYY-MM-DD)로 patch → publish → title 원복. Blogger가 발행 시점 title로 URL을 고정하고 이후 title 변경은 URL에 영향 없음에 의존.
 - 슬러그는 영문/숫자/하이픈만 허용. `--slug-from-date`의 metadata `primary_date`가 null이면 fail.
-- 같은 날짜의 두 번째 글은 Blogger가 자동으로 `-1`, `-2` 등의 suffix 추가.
-- 발행 결과 URL이 요청 슬러그와 다르면 경고만 출력 (작업은 진행됨).
+- 같은 날짜의 두 번째 글은 Blogger가 자동으로 `-1`, `-2` 등의 suffix 추가 (자동 suffix는 정상 통과).
+- 발행 결과 URL이 요청 슬러그(또는 자동 suffix `-N`)와 다르면 **exit 7로 fail-fast**. 자동화 재시도는 같은 글이 LIVE 상태로 남아 있을 가능성을 인지하고 수동 확인 분기로 처리할 것.
+
+### URL 슬러그 — 절대 규칙
+
+Blogger는 **첫 발행 시점에 URL을 영구 고정**한다. LIVE 된 글의 슬러그는 어떤 API/UI로도 변경 불가능.
+
+- **발행 전(DRAFT) 단계**에서 슬러그를 반드시 `YYYY-MM-DD` 형태로 결정해 둘 것. `publish-post.js`의 슬러그 트릭은 DRAFT → LIVE 전환 순간에만 효과가 있다.
+- 이미 LIVE 된 글의 URL을 바꾸려고 **글을 삭제하고 새로 발행하지 말 것**. Google index에 옛 URL이 남아 새 URL로의 redirect chain이 만들어지고, 이게 Search Console의 "리디렉션 오류"로 분류되어 색인이 막힌다 (실제로 이 프로젝트가 한 번 겪었던 사고).
+- 부득이 URL을 바꿔야 한다면:
+  1. 옛 글을 `delete-post.js`로 삭제. **단, Blogger v3 API의 `useTrash` 기본값은 문서에 명시되어 있지 않고 현재 `delete-post.js`는 옵션 미전달**이므로, 삭제 후 Blogger 에디터의 휴지통이 비어 있는지 (즉 영구 삭제되었는지) **수동 확인 필수**. 휴지통에 남아 있으면 비우기까지 진행해야 옛 URL이 응답을 멈춘다.
+  2. 옛 URL을 직접 열어서 404가 반환되는지 확인. 200/3xx가 나오면 색인에서 자연 제거되지 않으므로 다시 휴지통/영구 삭제 단계로 돌아갈 것.
+  3. 새 글을 올바른 슬러그로 처음부터 새로 작성·발행
+  4. Search Console "삭제" 도구에서 옛 URL을 명시적으로 "임시 삭제" 요청 (재크롤 가속)
 
 ## 프롬프트 파일
 
