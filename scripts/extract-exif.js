@@ -1,7 +1,9 @@
 require('dotenv').config();
 
+const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
+const exifReader = require('exif-reader');
 
 const args = process.argv.slice(2);
 
@@ -49,26 +51,86 @@ function parseExifDate(dateStr) {
   return `${y}-${m}-${d}T${h}:${min}:${s}+09:00`;
 }
 
-function parseGPS(metadata) {
-  const gps = metadata.gps || {};
-  const lat = gps.latitude;
-  const lng = gps.longitude;
-  if (lat == null || lng == null) return null;
-  return { lat: Number(lat), lng: Number(lng) };
-}
-
 async function extractExif(imagePath) {
   const metadata = await sharp(imagePath).metadata();
-  const exif = metadata.exif || {};
-  const dateStr = parseExifDate(metadata.date) || parseExifDate(exif.DateTimeOriginal) || parseExifDate(exif.DateTime);
-  const gps = parseGPS(metadata);
-  const camera = [metadata.make, metadata.model].filter(Boolean).join(' ') || null;
+
+  // sharp returns metadata.exif as a raw Buffer — parse it with exif-reader
+  let parsed = {};
+  let exif_status = 'none';
+  if (metadata.exif) {
+    try {
+      parsed = exifReader(metadata.exif);
+      exif_status = 'ok';
+    } catch (e) {
+      console.error(`EXIF parse warning for ${path.basename(imagePath)}: ${e.message}`);
+      exif_status = 'parse_error';
+    }
+  }
+
+  // exif-reader uses PascalCase IFD names: Image, Photo, GPSInfo
+  const img = parsed.Image || parsed.image || {};
+  const exif = parsed.Photo || parsed.exif || {};
+  const gpsData = parsed.GPSInfo || parsed.gps || {};
+
+  // Date: exif-reader returns Date objects (parsed as UTC from local-time EXIF strings)
+  const dateObj = exif.DateTimeOriginal || exif.DateTimeDigitized || img.DateTime || null;
+  let dateStr = null;
+  if (dateObj instanceof Date && !isNaN(dateObj.getTime())) {
+    // EXIF dates have no timezone — exif-reader puts local-time values into UTC fields.
+    // Extract via getUTC* to recover the original local values, then label as KST (+09:00).
+    const y = dateObj.getUTCFullYear();
+    const m = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(dateObj.getUTCDate()).padStart(2, '0');
+    const h = String(dateObj.getUTCHours()).padStart(2, '0');
+    const min = String(dateObj.getUTCMinutes()).padStart(2, '0');
+    const s = String(dateObj.getUTCSeconds()).padStart(2, '0');
+    dateStr = `${y}-${m}-${d}T${h}:${min}:${s}+09:00`;
+  } else if (typeof dateObj === 'string') {
+    dateStr = parseExifDate(dateObj);
+  }
+
+  // GPS: exif-reader returns [degrees, minutes, seconds] arrays
+  let gps = null;
+  const latDMS = gpsData.GPSLatitude;
+  const lngDMS = gpsData.GPSLongitude;
+
+  function finalizeGPS(latVal, lngVal) {
+    if (gpsData.GPSLatitudeRef === 'S') latVal = -latVal;
+    if (gpsData.GPSLongitudeRef === 'W') lngVal = -lngVal;
+    if (latVal >= -90 && latVal <= 90 && lngVal >= -180 && lngVal <= 180) {
+      return { lat: Number(latVal.toFixed(6)), lng: Number(lngVal.toFixed(6)) };
+    }
+    console.error(`GPS coordinates out of range for ${path.basename(imagePath)}: lat=${latVal} lng=${lngVal}`);
+    return null;
+  }
+
+  if (Array.isArray(latDMS) && Array.isArray(lngDMS)
+      && latDMS.length >= 3 && lngDMS.length >= 3
+      && latDMS.every(v => typeof v === 'number' && isFinite(v))
+      && lngDMS.every(v => typeof v === 'number' && isFinite(v))) {
+    gps = finalizeGPS(
+      latDMS[0] + latDMS[1] / 60 + latDMS[2] / 3600,
+      lngDMS[0] + lngDMS[1] / 60 + lngDMS[2] / 3600,
+    );
+  } else if (typeof latDMS === 'number' && typeof lngDMS === 'number'
+      && isFinite(latDMS) && isFinite(lngDMS)) {
+    gps = finalizeGPS(latDMS, lngDMS);
+  } else if (latDMS !== undefined && lngDMS !== undefined) {
+    console.error(`Unexpected GPS DMS format for ${path.basename(imagePath)}: lat=${JSON.stringify(latDMS)} lng=${JSON.stringify(lngDMS)}`);
+  }
+
+  // Camera
+  const make = String(img.Make || '').trim();
+  const model = String(img.Model || '').trim();
+  const camera = [make, model].filter(Boolean).join(' ') || null;
 
   return {
     file: path.basename(imagePath),
     date: dateStr,
     gps,
     camera,
+    exif_status,
+    timezone_assumed: dateStr ? 'Asia/Seoul (+09:00)' : null,
   };
 }
 
@@ -85,7 +147,9 @@ async function main() {
     }
     try {
       const info = await extractExif(imgPath);
-      photos.push({ ...info, date_status: info.date ? 'ok' : 'missing' });
+      const date_status = info.exif_status === 'parse_error' ? 'parse_error'
+        : info.date ? 'ok' : 'missing';
+      photos.push({ ...info, date_status });
     } catch (err) {
       console.error(`Error reading ${imgPath}: ${err.message}`);
       photos.push({
@@ -114,9 +178,15 @@ async function main() {
     primaryDateSourceCount = topCount;
   }
 
-  const photosWithDate = photos.filter((p) => p.date_status === 'ok').length;
-  if (photos.length > 0 && photosWithDate * 2 < photos.length) {
-    console.error(`Warning: EXIF 날짜를 가진 사진이 ${photosWithDate}/${photos.length}장에 불과합니다. primary_date 신뢰도가 낮습니다.`);
+  const readErrors = photos.filter((p) => p.date_status === 'read_error').length;
+  if (readErrors > 0) {
+    console.error(`Warning: ${readErrors} photo(s) could not be read. primary_date may be unreliable.`);
+  }
+
+  const validPhotos = photos.filter((p) => p.date_status !== 'read_error');
+  const photosWithDate = validPhotos.filter((p) => p.date_status === 'ok').length;
+  if (validPhotos.length > 0 && photosWithDate * 2 < validPhotos.length) {
+    console.error(`Warning: EXIF 날짜를 가진 사진이 ${photosWithDate}/${validPhotos.length}장에 불과합니다. primary_date 신뢰도가 낮습니다.`);
   }
 
   const gpsPoints = photos.map((p) => p.gps).filter(Boolean);
@@ -147,7 +217,6 @@ async function main() {
   const json = JSON.stringify(result, null, 2);
 
   if (outputPath) {
-    const fs = require('fs');
     try {
       const dir = path.dirname(outputPath);
       fs.mkdirSync(dir, { recursive: true });

@@ -81,8 +81,11 @@ function slugMatchesWithAutoSuffix(actual, requested) {
 
 function loadSlugFromMetadata(metadataPath) {
   const meta = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
-  if (!meta.primary_date) {
-    throw new Error(`metadata ${metadataPath}의 primary_date가 null입니다. --slug로 직접 지정하세요.`);
+  if (typeof meta !== 'object' || meta === null) {
+    throw new Error(`metadata ${metadataPath}의 최상위 타입이 객체가 아닙니다.`);
+  }
+  if (typeof meta.primary_date !== 'string' || !meta.primary_date) {
+    throw new Error(`metadata ${metadataPath}의 primary_date가 null이거나 문자열이 아닙니다. --slug로 직접 지정하세요.`);
   }
   // YYYY-MM-DD 형식 + 실제 유효한 달력 날짜인지 검증. 슬러그 정규식만으로는
   // "2026-13-99" 같은 invalid 날짜가 통과해서 URL이 그 문자열로 영구 고정되는 사고가 난다.
@@ -162,6 +165,7 @@ async function publishWithCustomSlug(postId, slug) {
     published = await publishPost(postId);
   } catch (err) {
     console.error('발행 실패. title 복원 시도 중...');
+    const errMsg = (err && err.message) || String(err);
     try {
       // 복원 응답에서 실제 title을 확인 — Blogger의 silent 정규화/truncate가 있으면 그쪽에서도
       // "복원 완료"라는 거짓 메시지가 나가지 않도록 한다 (정상 복원 경로와 대칭).
@@ -176,8 +180,11 @@ async function publishWithCustomSlug(postId, slug) {
       // 자동화가 exit 1을 "일반 실패 → 재시도"로 분류하면 두 번째 호출이 originalTitle을
       // 슬러그로 백업해 슬러그가 영구 손실되는 멱등성 사고가 난다. exit 7로 분류해
       // 자동화가 "수동 확인 필요"로 분기하도록 강제.
-      err.message = `${err.message}\n  + title 복원도 실패: ${restoreErr.message}\n  + 현재 Blogger title은 "${slug}"로 남아 있음. 원본 title: "${originalTitle}". 수동 복원 후 재시도.`;
-      err.exitCode = 7;
+      const wrapped = new Error(
+        `${errMsg}\n  + title 복원도 실패: ${restoreErr.message}\n  + 현재 Blogger title은 "${slug}"로 남아 있음. 원본 title: "${originalTitle}". 수동 복원 후 재시도.`,
+      );
+      wrapped.exitCode = 7;
+      throw wrapped;
     }
     throw err;
   }
@@ -284,6 +291,25 @@ async function main() {
     process.exit(1);
   }
 
+  // 날짜 형식 슬러그(YYYY-MM-DD)인데 zero-padding이 안 된 경우 차단.
+  // 예: "2026-5-4" → "2026-05-04"로 수정 필요.
+  // URL이 영구 고정되므로 비일관성은 Google 색인에 악영향을 줌.
+  const dateLikeSlug = slug.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (dateLikeSlug) {
+    const [, yStr, moStr, dStr] = dateLikeSlug;
+    const zeroPadded = `${yStr}-${moStr.padStart(2, '0')}-${dStr.padStart(2, '0')}`;
+    if (slug !== zeroPadded) {
+      console.error(`Error: 날짜 슬러그는 zero-padding이 필요합니다. "${slug}" → "${zeroPadded}"으로 지정하세요.`);
+      process.exit(1);
+    }
+    const y = Number(yStr), mo = Number(moStr), d = Number(dStr);
+    const date = new Date(y, mo - 1, d);
+    if (date.getFullYear() !== y || date.getMonth() + 1 !== mo || date.getDate() !== d) {
+      console.error(`Error: 슬러그 "${slug}"는 유효한 달력 날짜가 아닙니다.`);
+      process.exit(1);
+    }
+  }
+
   console.log(`Publishing Blogger post ${postId} with slug "${slug}"...`);
   const post = await publishWithCustomSlug(postId, slug);
 
@@ -300,6 +326,9 @@ main().catch((err) => {
   // err.message와 err.response.data를 모두 출력 — 한쪽을 다른 쪽이 덮어 사용자 안내 문구
   // (예: 슬러그 트릭의 수동 복원 가이드)가 silent하게 사라지는 사고를 막는다.
   console.error('Publish failed:', err.message);
+  if (err.stack) {
+    console.error(err.stack);
+  }
   if (err.response?.data) {
     console.error('API response:', JSON.stringify(err.response.data));
   }

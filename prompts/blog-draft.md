@@ -8,6 +8,7 @@ Create a Korean Blogger draft from the provided data.
 
 Inputs:
 - User photos and photo analysis
+- Visual observations from photos (scene, atmosphere, landmarks, signage, food, weather) — if the model inspected photos via Read tool
 - Public image URLs (webpUrl)
 - Confirmed or candidate place information
 - Internet research summary from official or trusted sources
@@ -39,6 +40,7 @@ Writing requirements:
 - Avoid ad-click encouragement.
 - Use proper names for well-known landmarks and buildings visible in photos or near the visit location. "롯데타워", not "큰 건물". If the landmark name is uncertain, mark it as "확인 필요".
 - Do not state obvious facts in a preachy tone. Information that readers already know should be woven in naturally, not presented as instruction.
+- If visual observations from photos are available, use them to enrich scene descriptions, figcaptions, and place identification. Confident visual identifications (e.g., visible signage, recognizable landmarks) can be stated as fact; uncertain ones must be marked "확인 필요".
 - Break the body into readable chunks. Each `<p>` should normally be 2-4 sentences (about 250 Korean characters or fewer); if one paragraph mixes two topics (예: 음식 묘사 + 주문 팁) or runs longer, split it.
 - Insert at least three `<h3>` subheadings between the intro and the closing section when the body is 1,500+ characters. Place them where the topic shifts (분위기 → 메뉴 → 실용 정보 → 마무리), not as arbitrary slicers. Use natural phrasing ("호텔 지하인데 답답하지 않다"), not mechanical labels ("메뉴 정보", "주차 안내").
 - Never place an `<h3>` immediately after an `<img>`/`<figure>`. Subheadings always come after a text paragraph and before the next image, so AdSense's "2+ sentences between image and ad" rule is preserved.

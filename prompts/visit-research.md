@@ -121,6 +121,7 @@ Rules:
 - Treat operating hours, prices, promotions, and parking rules as dynamic. Add "방문 전 공식 페이지 확인" to fact_check_notes when appropriate.
 - Identify well-known landmarks and buildings by their proper Korean names. "롯데타워", not "큰 건물". "63빌딩", not "높은 건물". If unsure, put the name in fact_check_notes.
 - Do not invent a source or URL.
+- If you have visually inspected photos (via Read tool), use observed details (visible signage, store names, landmarks) to help identify the place. Do NOT guess from visual observation alone without cross-referencing GPS or user notes.
 - If the place cannot be identified from the notes, return empty sources and explain in fact_check_notes.
 - Keep the research compact. It supports the personal photo-based review, not replaces it.
 - Optional fields (accessibility, ticket_or_fee, promotions, seasonal_notes, common_routes, common_positives, common_concerns, menu_and_pricing) can be omitted when not applicable. Do not fill them with trivial or invented content.

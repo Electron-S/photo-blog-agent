@@ -4,9 +4,15 @@
 
 ## 아키텍처
 
-텔레그램 봇(`cy-telegram-bot`)에서 `/project` → `photo-blog-agent` 폴더를 선택하면 그 세션이 이 프로젝트 디렉토리에서 Claude Code를 실행합니다. 봇은 메시지와 사진을 릴레이만 하며 모든 블로그 관련 처리는 Claude Code가 담당합니다.
+이 저장소는 Claude Code의 `/blog` 슬래시 커맨드와 `scripts/*`, `prompts/*`로 구성된다.
 
-봇은 한 번에 여러 장의 사진을 받을 수 있도록 chatId 단위로 사진을 누적합니다(기본 3초 디바운스 또는 텍스트 메시지로 처리 트리거). 사용자가 사진 누적 중에 모드/세션을 전환하면 봇은 누적된 사진과 캡션을 **`tmp/pending-batch/`** (이 디렉토리 안의 임시 슬롯, `tmp/`는 gitignore)에 임시 저장하고, 나중에 `/project`로 다시 돌아오면 [이어서]/[폐기] 선택을 받습니다.
+- **`.claude/commands/blog.md`** — `/blog` 모드 진입 시 로드되는 워크플로우 프롬프트
+- **`scripts/`** — EXIF 추출, 시각 분석 스캐폴딩, 이미지 업로드, Blogger 초안/수정/발행/삭제
+- **`prompts/`** — 스타일 가이드, 시스템 규칙, 초안 작성, 방문지 리서치 프롬프트
+- **`lib/`** — Blogger API 클라이언트, GitHub Pages 이미지 호스팅
+- **`schemas/`** — JSON 스키마
+
+사용자는 `/blog` 커맨드로 모드를 시작하고, 사진 파일 경로와 방문 메모를 자연어로 전달한다. Claude Code는 사진을 Read 도구로 시각 검사하여 장면·분위기·간판 등을 파악하고, 결과를 `tmp/photo-analysis-<날짜>.json`에 영속화한다. 비전 능력이 없는 모델이 실행 중이면 시각 분석을 건너뛰고 EXIF·캡션만으로 초안을 작성한다. 단계별 진행 상태는 `tmp/session-state-<slug>.json`에 기록되어 다른 세션이나 다른 모델이 중단 지점부터 이어 진행할 수 있다.
 
 ## 사진 파이프라인
 
@@ -22,6 +28,21 @@ node scripts/extract-exif.js <이미지경로1> [이미지경로2] ... --output 
 - `--output`으로 JSON 파일을 저장해야 2단계에서 `--metadata`로 재사용할 수 있다.
 - 출력 포맷: `{ photos: [...], primary_date: "YYYY-MM-DD", date_range: "...", gps_center: { lat, lng } }`
 - **`primary_date`** = 가장 많이 촬영된 단일 날짜 (동률이면 가장 이른 날). 이 값이 블로그 글의 방문 날짜이자 폴더 경로의 날짜다.
+
+### 1.5단계: 사진 시각 분석 (영속화)
+
+```bash
+node scripts/analyze-photos.js <이미지경로1> [이미지경로2] ... --output tmp/photo-analysis-<날짜>.json
+```
+
+- 빈 JSON 골격을 디스크에 쓰는 **스캐폴더 스크립트**. 실제 시각 분석은 실행 중인 모델이 Read 도구로 사진을 보고 Edit으로 채운다.
+- 모델은 첫 사진을 Read해서 시각 정보를 얻을 수 있으면 `analyzed_by_model_capability: "vision"`으로 표시하고 각 사진의 `scene_description`·`text_visible`·`notable_objects` 등을 채운다.
+- 첫 사진 Read에서 시각 정보가 없으면(텍스트 전용 모델) `analyzed_by_model_capability: "text-only"`로 표시하고 나머지 사진은 건너뛴다.
+- 이미 채워진 파일을 발견하면 다른 세션/모델이 만든 것이라 가정하고 재분석하지 않는다 (모델 간 핸드오프 지점).
+- 출력 포맷: `{ schema_version: 1, analyzed_at, analyzed_by_model_capability, photos: [...], overall_impression }`
+
+종료 코드:
+- `analyze-photos.js`: 0=성공, 1=인자 오류, 2=`--output` 쓰기 실패, 3=지원 이미지 없음
 
 ### 2단계: 이미지 처리 및 업로드
 
@@ -78,16 +99,20 @@ node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --metada
 - `width`/`height`는 실제 이미지 치수와 일치해야 함 (세로 사진: 768x1024, 가로: 1024x768 등).
 - 워터마크가 이미지 우측 하단에 자동 삽입됨.
 
-## 사용 가능한 스크립트
+## 사용 가능한 npm scripts
 
 | 명령 | 용도 |
 | --- | --- |
-| `npm run assets:upload` | 이미지 압축 & GitHub Pages 업로드 테스트 |
+| `npm run assets:extract` | EXIF 메타데이터 추출 |
+| `npm run assets:analyze` | 사진 시각 분석 JSON 골격 생성 |
+| `npm run assets:upload` | 이미지 압축 & GitHub Pages 업로드 |
+| `npm run assets:test` | GitHub Pages 업로드 테스트 |
 | `npm run blogger:auth` | Blogger OAuth 토큰 획득 |
 | `npm run blogger:test` | Blogger API 연결 테스트 |
 | `npm run blogger:draft` | Blogger 초안 생성 |
 | `npm run blogger:update` | Blogger 글 수정 |
 | `npm run blogger:publish` | Blogger 글 발행 |
+| `npm run blogger:delete` | Blogger 글 삭제 |
 
 ### EXIF 메타데이터 추출 (CLI)
 
@@ -96,6 +121,14 @@ node scripts/extract-exif.js <이미지경로1> [이미지경로2] ... [--output
 ```
 
 사진에서 날짜, GPS 좌표, 카메라 정보를 추출한다. `--output`으로 JSON 파일을 저장하면 다른 에이전트가 메타데이터를 활용할 수 있다.
+
+### 사진 시각 분석 스캐폴더 (CLI)
+
+```bash
+node scripts/analyze-photos.js <이미지경로1> [이미지경로2] ... --output tmp/photo-analysis-YYYY-MM-DD.json
+```
+
+빈 JSON 골격(`photos[]`, 각 항목 `analysis_status: "pending"`)을 디스크에 쓴다. 실행 중인 모델이 사진을 Read 도구로 본 뒤 Edit으로 채워야 한다. 비전 능력이 없는 모델은 `analyzed_by_model_capability: "text-only"`로 표시하고 종료. 이미 채워진 파일은 재분석하지 않는다 (모델 간 핸드오프).
 
 ### 이미지 업로드 (CLI)
 
@@ -132,7 +165,7 @@ node scripts/publish-post.js --post-id POST_ID --slug-from-date tmp/metadata-<�
 node scripts/publish-post.js --post-id POST_ID --slug 2026-05-10
 ```
 
-- **`--slug`/`--slug-from-date` 중 하나는 필수.** 둘 다 없으면 exit 6으로 거부 — Blogger 자동 슬러그(title 기반 한글)는 영구 고정되어 나중에 절대 못 바꾼다.
+- **`--slug`/`--slug-from-date` 중 하나는 필수.** 둘 다 없으면 exit 6으로 거부 — Blogger가 title 기반 한글 슬러그를 영구 고정하고 나중에 절대 못 바꾼다.
 - URL 컨벤션: `YYYY-MM-DD.html` (zero-padded). 사진 촬영 날짜 기반이라 글 작성 시점과 분리되고 정렬도 자연스러움.
 - Blogger API는 customPermalink를 공식 지원하지 않으므로 우회 트릭 사용: 발행 직전 title을 슬러그(YYYY-MM-DD)로 patch → publish → title 원복. Blogger가 발행 시점 title로 URL을 고정하고 이후 title 변경은 URL에 영향 없음에 의존.
 - 슬러그는 영문/숫자/하이픈만 허용. `--slug-from-date`의 metadata `primary_date`가 null이면 fail.
@@ -158,8 +191,25 @@ Blogger는 **첫 발행 시점에 URL을 영구 고정**한다. LIVE 된 글의 
 | `prompts/style-guide.md` | 한국어 블로그 작성 스타일 가이드 |
 | `prompts/system-rules.md` | 모든 글 생성 단계에 적용되는 시스템 규칙 |
 | `prompts/blog-draft.md` | 첫 초안 생성 프롬프트 |
+| `prompts/visit-research.md` | 방문지 리서치 프롬프트 |
 
 블로그 글을 작성하거나 수정할 때 반드시 이 세 파일을 읽고 규칙을 따르세요.
+
+## 영속화 아티팩트 (모델 간 핸드오프)
+
+`tmp/` 디렉토리에 다음 파일들이 단계별로 영속화되어, 다른 세션·다른 모델이 중단 지점부터 재개할 수 있다:
+
+| 파일 | 생성 단계 | 역할 |
+| --- | --- | --- |
+| `tmp/metadata-<날짜>.json` | EXIF 추출 직후 | 사진별 EXIF, `primary_date`, `gps_center` |
+| `tmp/photo-analysis-<날짜>.json` | 시각 분석 단계 | 빈 골격을 스크립트가 만들고 비전 모델이 채움. `analyzed_by_model_capability`로 vision/text-only 분기 표시 |
+| `tmp/session-state-<slug>.json` | 업로드 성공 후 | `steps_completed`/`steps_remaining`/`post_id`/`post_url` 등. 단계 종료마다 갱신 |
+| `tmp/draft-<slug>.html` | 초안 작성 | Blogger에 등록된 HTML 본문 (수정 루프 시 Edit 대상) |
+
+핵심 원칙:
+- 이미 채워진 `photo-analysis-*.json`(`analyzed_by_model_capability`가 null이 아님)은 재분석하지 않는다 — 모델이 바뀌어도 그대로 사용
+- `session-state-*.json`이 존재하면 `/blog` 모드 진입 시 사용자에게 "이어서/처음부터" 분기를 물음
+- 사용자가 "처음부터"를 선택하면 session-state와 draft-html은 삭제하되, metadata/photo-analysis는 멱등하므로 보존
 
 ## 이미지 보호
 
@@ -172,6 +222,7 @@ Blogger는 **첫 발행 시점에 URL을 영구 고정**한다. LIVE 된 글의 
 
 `.env` 파일에 다음 변수가 설정되어 있어야 합니다:
 
+블로그 파이프라인:
 - `BLOGGER_BLOG_ID`, `BLOGGER_CLIENT_ID`, `BLOGGER_CLIENT_SECRET`, `BLOGGER_REFRESH_TOKEN` — Blogger API
 - `GITHUB_OWNER`, `GITHUB_ASSET_REPO`, `GITHUB_ASSET_BRANCH`, `GITHUB_ASSET_BASE_URL` — GitHub Pages 이미지 호스팅
 - `GITHUB_TOKEN` (선택) — GitHub API 토큰, 없으면 `gh auth token` 사용

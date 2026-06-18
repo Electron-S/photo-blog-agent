@@ -7,15 +7,15 @@
 ## 아키텍처
 
 ```text
-[Telegram 앱] → [codex-bot (메시지 전달)] → [Claude Code] → [photo-blog-agent 스크립트]
-                                                        ↓
-                                                 [Blogger API]
-                                                 [GitHub Pages]
+[Claude Code /blog] → [photo-blog-agent scripts] → [Blogger API]
+                                             ↓
+                                       [GitHub Pages]
 ```
 
-- **codex-bot**: 텔레그램 메시지와 사진을 Claude Code에 전달하는 단순 릴레이 봇
-- **Claude Code**: 모든 블로그 관련 처리를 담당 (프롬프트 읽기, 리서치, 초안 작성, API 호출)
-- **photo-blog-agent**: 프롬프트, 스크립트, 스타일 가이드, JSON 스키마를 제공하는 프로젝트
+- **Claude Code**: `/blog` 슬래시 커맨드로 진입하여 프롬프트를 읽고, 리서치, 초안 작성, API 호출을 담당합니다.
+- **photo-blog-agent**: 프롬프트, 스크립트, 스타일 가이드, JSON 스키마, 설정을 제공하는 프로젝트입니다.
+- **Blogger API**: 초안 생성, 수정, 발행, 삭제.
+- **GitHub Pages**: 이미지 호스팅.
 
 ## 구성 요소
 
@@ -32,20 +32,25 @@
 
 | 명령 | 용도 |
 |------|------|
+| `npm run assets:extract` | EXIF 메타데이터 추출 |
+| `npm run assets:analyze` | 사진 시각 분석 JSON 골격 생성 |
+| `npm run assets:upload` | 이미지 압축 & GitHub Pages 업로드 |
+| `npm run assets:test` | GitHub Pages 업로드 테스트 |
 | `npm run blogger:auth` | Blogger OAuth 토큰 획득 |
 | `npm run blogger:test` | Blogger API 연결 테스트 |
 | `npm run blogger:draft` | Blogger 초안 생성 (`--title`, `--content`, `--labels`) |
 | `npm run blogger:update` | Blogger 글 수정 (`--post-id`, `--title`, `--content`, `--labels`) |
-| `npm run blogger:publish` | Blogger 글 발행 (`--post-id`) |
+| `npm run blogger:publish` | Blogger 글 발행 (`--post-id`, `--slug` 또는 `--slug-from-date`) |
 | `npm run blogger:delete` | Blogger 글 삭제 (`--post-id`, `--draft-only`) |
-| `npm run assets:upload` | 이미지 압축 & GitHub Pages 업로드 (`--date`, `--slug`, `--max-size-kb`) |
-| `npm run assets:test` | 업로드 테스트 |
 
 CLI 직접 호출 (1단계의 출력을 2단계 `--metadata`로 연결해야 EXIF 날짜가 일관되게 사용됨):
 
 ```bash
 # 1단계: EXIF 메타데이터 추출 (날짜/GPS/카메라 정보 → JSON 저장)
 node scripts/extract-exif.js <이미지경로...> --output tmp/metadata-2026-05-05.json
+
+# 1.5단계: 사진 시각 분석 골격 생성 (실제 분석은 Claude Code가 Read/Edit로 채움)
+node scripts/analyze-photos.js <이미지경로...> --output tmp/photo-analysis-2026-05-05.json
 
 # 2단계: 이미지 처리 & GitHub Pages 업로드 (--metadata로 1단계 결과 연결)
 node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-05-05.json [--slug 슬러그] [--max-size-kb N]
@@ -57,6 +62,7 @@ node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-
 |------|------|
 | `blogger.js` | Blogger API 클라이언트 (초안 생성, 수정, 발행) |
 | `github-assets.js` | 이미지 압축(sharp) & GitHub Pages 업로드 |
+| `verify-images.js` | 본문 내 이미지 URL 검증 |
 
 ### JSON 스키마 (`schemas/`)
 
@@ -70,7 +76,8 @@ node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-
 블로그 글 작성과 독립적으로 동작하며, 다른 에이전트도 메타데이터를 활용할 수 있도록 결과를 JSON 파일로 저장한다.
 
 1. **EXIF 메타데이터 추출** (`extract-exif.js`) — 날짜, GPS, 카메라 정보 추출. 결과 JSON에 `primary_date`(가장 많이 촬영된 날짜)를 포함.
-2. **이미지 처리 & 업로드** (`upload-images.js`) — `--metadata`로 1단계 결과를 받아 EXIF 날짜를 폴더 경로에 반영. WebP 변환, 리사이즈, 워터마크, GitHub Pages 업로드.
+2. **사진 시각 분석 스캐폴딩** (`analyze-photos.js`) — `tmp/photo-analysis-<날짜>.json`에 빈 골격 생성. Claude Code가 Read 도구로 사진을 보고 Edit으로 채움.
+3. **이미지 처리 & 업로드** (`upload-images.js`) — `--metadata`로 1단계 결과를 받아 EXIF 날짜를 폴더 경로에 반영. WebP 변환, 리사이즈, 워터마크, GitHub Pages 업로드.
 
 ### 사진 날짜 vs 글 쓰는 날짜
 
@@ -89,10 +96,12 @@ node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-
 
 ### 종료 코드
 
-| 스크립트 | 0 | 1 | 2 | 3 | 4 | 5 |
-|---|---|---|---|---|---|---|
-| `extract-exif.js` | 성공 | 일반 실패 | `--output` 쓰기 실패 | 지원 이미지 없음 | — | — |
-| `upload-images.js` | 전부 정상 | 업로드/검증 실패 | — | — | fallback/oversize (정책 점검) | 날짜 출처 미상 — 업로드 거부 (멱등성 보호) |
+| 스크립트 | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|---|
+| `extract-exif.js` | 성공 | 일반 실패 | `--output` 쓰기 실패 | 지원 이미지 없음 | — | — | — | — |
+| `analyze-photos.js` | 성공 | 인자 오류 | `--output` 쓰기 실패 | 지원 이미지 없음 | — | — | — | — |
+| `upload-images.js` | 전부 정상 | 업로드/검증 실패 | — | — | fallback/oversize (정책 점검) | 날짜 출처 미상 — 업로드 거부 (멱등성 보호) | — | — |
+| `publish-post.js` | 성공 | 일반 실패 | — | — | — | 슬러그 미지정 거부 | 슬러그 검증 실패 | — |
 
 ## 블로그 글 작성 워크플로우
 
@@ -107,7 +116,12 @@ node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-
 4. 사용자가 수정을 요청하면 scripts/update-post.js로 기존 글 수정
    (--labels 생략 시 기존 라벨 보존)
 5. 사용자가 승인하면 scripts/publish-post.js로 발행
+   (--slug-from-date 또는 --slug 필수)
 ```
+
+## URL 슬러그 절대 규칙
+
+Blogger는 **첫 발행 시점에 URL을 영구 고정**한다. `publish-post.js`는 발행 직전 title을 슬러그(`YYYY-MM-DD`)로 변경 → 발행 → title 복원하는 트릭을 사용한다. 발행 전 DRAFT 단계에서 슬러그를 반드시 결정해야 하며, LIVE 된 글의 URL은 변경할 수 없다.
 
 ## 환경변수
 

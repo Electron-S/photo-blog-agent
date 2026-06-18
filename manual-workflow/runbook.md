@@ -6,7 +6,7 @@ Claude Code를 사용해 Blogger 글 품질과 운영 흐름을 검증합니다.
 
 ## Steps
 
-1. 텔레그램에서 사진과 방문 메모를 보냅니다.
+1. Claude Code에서 `/blog` 모드로 진입하고 사진 경로와 방문 메모를 제공합니다.
 2. Claude Code가 사진을 분석하고 방문지를 파악합니다.
 3. Claude Code가 방문지 공식 정보를 리서치합니다.
 4. [input-template.md](input-template.md)를 참고해 Claude Code에 추가 정보를 제공합니다.
@@ -14,6 +14,9 @@ Claude Code를 사용해 Blogger 글 품질과 운영 흐름을 검증합니다.
    ```bash
    # 1단계: EXIF 추출 (JSON 저장)
    node scripts/extract-exif.js <이미지경로들> --output tmp/metadata-<날짜>.json
+
+   # 1.5단계: 시각 분석 골격 생성
+   node scripts/analyze-photos.js <이미지경로들> --output tmp/photo-analysis-<날짜>.json
 
    # 2단계: --metadata로 EXIF 날짜를 폴더 경로에 반영
    node scripts/upload-images.js <이미지경로들> --metadata tmp/metadata-<날짜>.json --slug <슬러그>
@@ -29,9 +32,10 @@ Claude Code를 사용해 Blogger 글 품질과 운영 흐름을 검증합니다.
    ```bash
    node scripts/update-post.js --post-id ID --content ./revised.html
    ```
-10. 발행 준비가 되면 공개합니다:
+10. 발행 준비가 되면 `--slug-from-date` 또는 `--slug`를 명시하고 발행합니다:
     ```bash
-    node scripts/publish-post.js --post-id ID
+    # EXIF 촬영일을 URL 슬러그로 사용
+    node scripts/publish-post.js --post-id ID --slug-from-date tmp/metadata-<날짜>.json
     ```
 
 ## Success Criteria

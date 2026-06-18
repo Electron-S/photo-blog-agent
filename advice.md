@@ -13,18 +13,18 @@ Airtable paid plan: no
 무료 또는 이미 가진 도구 우선
 ```
 
-## 아키텍처 (2026-05-12 업데이트)
+## 아키텍처
 
 ```text
-Telegram → codex-bot (단순 릴레이) → Claude Code → photo-blog-agent 스크립트
-                                              ↓
-                                       Blogger API (초안/수정/발행)
-                                       GitHub Pages (이미지 호스팅)
+[Claude Code /blog] → [photo-blog-agent scripts] → [Blogger API]
+                                             ↓
+                                       [GitHub Pages]
 ```
 
-- **codex-bot**: 메시지와 사진을 Claude Code에 전달만 하는 텔레그램 봇. 블로그 로직 없음.
-- **photo-blog-agent**: 프롬프트, 스크립트, 스키마, 설정을 제공하는 프로젝트. Claude Code가 직접 활용.
-- **Claude Code**: 모든 블로그 관련 처리를 담당 (프롬프트 읽기, 리서치, 초안 작성, API 호출).
+- **Claude Code**: `/blog` 슬래시 커맨드로 진입하여 프롬프트를 읽고, 리서치, 초안 작성, API 호출을 담당.
+- **photo-blog-agent**: 프롬프트, 스크립트, 스키마, 설정을 제공하는 프로젝트.
+- **Blogger API**: 초안 생성, 수정, 발행, 삭제.
+- **GitHub Pages**: 이미지 호스팅.
 
 ## 현재 상태
 
@@ -44,18 +44,20 @@ AdSense: 아직 신청 전 (글 10개 목표)
 3. 글 10개와 기본 페이지 준비 후 AdSense 신청
 ```
 
-## 사용 가능한 스크립트
+## 사용 가능한 npm scripts
 
 | 명령 | 용도 |
 |------|------|
+| `npm run assets:extract` | EXIF 메타데이터 추출 |
+| `npm run assets:analyze` | 사진 시각 분석 JSON 골격 생성 |
+| `npm run assets:upload` | 이미지 압축 & GitHub Pages 업로드 |
+| `npm run assets:test` | GitHub Pages 업로드 테스트 |
 | `npm run blogger:auth` | Blogger OAuth 토큰 획득 |
 | `npm run blogger:test` | Blogger API 연결 테스트 |
 | `npm run blogger:draft` | 초안 생성 (`--title`, `--content`, `--labels`) |
 | `npm run blogger:update` | 글 수정 (`--post-id`, `--title`, `--content`, `--labels`) |
-| `npm run blogger:publish` | 글 발행 (`--post-id`) |
+| `npm run blogger:publish` | 글 발행 (`--post-id`, `--slug` 또는 `--slug-from-date`) |
 | `npm run blogger:delete` | 글 삭제 (`--post-id`, `--draft-only`) |
-| `npm run assets:upload` | 이미지 압축 & GitHub Pages 업로드 |
-| `npm run assets:test` | 업로드 테스트 |
 
 ## 이미지 호스팅
 
@@ -63,7 +65,7 @@ AdSense: 아직 신청 전 (글 10개 목표)
 GitHub repo: Electron-S/photo-blog-assets
 Pages URL: https://electron-s.github.io/photo-blog-assets/
 제한: 1GB 저장소, 월 100GB 대역폭
-이미지 압축: 최대 1600px, JPEG 품질 82%
+이미지 압축: 최대 1024px, WebP, 150KB 이하 목표
 ```
 
 ## 블로그 작성 스타일 가이드
