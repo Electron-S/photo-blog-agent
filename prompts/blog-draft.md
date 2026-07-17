@@ -1,7 +1,6 @@
 # Blog Draft Prompt
 
-Use this as the first draft prompt. It is embedded by the Telegram blog bot, so
-the output schema must match what the bot parses.
+Use this as the first draft prompt for blog post generation via Claude Code's `/blog` command.
 
 ```text
 Create a Korean Blogger draft from the provided data.
@@ -23,7 +22,7 @@ Required JSON fields:
 - title: Korean blog title
 - content_html: full article body as Blogger-compatible HTML
 - labels: 5-10 Blogger labels
-- summary: short Korean summary for Telegram review
+- summary: short Korean summary for user review before publishing
 - fact_check_notes: uncertain claims or missing facts
 
 Writing requirements:

@@ -1,33 +1,8 @@
 require('dotenv').config();
 
 const axios = require('axios');
-
-const args = process.argv.slice(2);
-
-function getArg(name) {
-  const idx = args.indexOf(name);
-  if (idx === -1 || idx + 1 >= args.length) return null;
-  return args[idx + 1];
-}
-
-async function getAccessToken() {
-  const {
-    BLOGGER_CLIENT_ID: clientId,
-    BLOGGER_CLIENT_SECRET: clientSecret,
-    BLOGGER_REFRESH_TOKEN: refreshToken,
-  } = process.env;
-
-  const res = await axios.post('https://oauth2.googleapis.com/token', new URLSearchParams({
-    client_id: clientId,
-    client_secret: clientSecret,
-    refresh_token: refreshToken,
-    grant_type: 'refresh_token',
-  }), {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  });
-
-  return res.data.access_token;
-}
+const { getArg } = require('../lib/cli-args');
+const { getAccessToken } = require('../lib/blogger');
 
 async function main() {
   const postId = getArg('--post-id');

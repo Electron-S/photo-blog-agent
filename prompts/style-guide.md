@@ -1,6 +1,6 @@
 # Electronian Blog Style Guide
 
-이 문서는 Telegram Blog Agent가 Blogger 초안과 수정본을 만들 때 항상 참고해야 하는 작성 스타일입니다.
+이 문서는 Claude Code의 `/blog` 명령으로 블로그 초안과 수정본을 만들 때 항상 참고해야 하는 작성 스타일입니다.
 
 ## Core Direction
 
