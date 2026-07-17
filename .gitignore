@@ -1,4 +1,5 @@
 node_modules/
 .env
+.naver-session.json
 tmp/
 tmp.backup.*/

@@ -10,6 +10,9 @@
     "blogger:update": "node scripts/update-post.js",
     "blogger:publish": "node scripts/publish-post.js",
     "blogger:delete": "node scripts/delete-post.js",
+    "naver:login": "node scripts/naver-login-setup.js",
+    "naver:draft": "node scripts/naver-create-draft.js",
+    "naver:publish": "node scripts/naver-publish-post.js",
     "assets:extract": "node scripts/extract-exif.js",
     "assets:analyze": "node scripts/analyze-photos.js",
     "assets:upload": "node scripts/upload-images.js",
@@ -19,6 +22,7 @@
     "axios": "^1.15.0",
     "dotenv": "^16.4.5",
     "exif-reader": "^2.0.3",
+    "playwright": "^1.48.0",
     "sharp": "^0.34.5"
   }
 }

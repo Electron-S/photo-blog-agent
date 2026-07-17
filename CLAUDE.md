@@ -1,15 +1,15 @@
 # Photo Blog Agent — Claude Code 지침
 
-이 프로젝트는 사진과 방문 메모를 바탕으로 Blogger 블로그 글을 작성하는 에이전트입니다.
+이 프로젝트는 사진과 방문 메모를 바탕으로 **Blogger 또는 네이버 블로그**에 글을 작성하는 에이전트입니다.
 
 ## 아키텍처
 
 이 저장소는 Claude Code의 `/blog` 슬래시 커맨드와 `scripts/*`, `prompts/*`로 구성된다.
 
 - **`.claude/commands/blog.md`** — `/blog` 모드 진입 시 로드되는 워크플로우 프롬프트
-- **`scripts/`** — EXIF 추출, 시각 분석 스캐폴딩, 이미지 업로드, Blogger 초안/수정/발행/삭제
+- **`scripts/`** — EXIF 추출, 시각 분석 스캐폴딩, 이미지 업로드, Blogger/네이버 초안/수정/발행/삭제
 - **`prompts/`** — 스타일 가이드, 시스템 규칙, 초안 작성, 방문지 리서치 프롬프트
-- **`lib/`** — Blogger API 클라이언트, GitHub Pages 이미지 호스팅
+- **`lib/`** — Blogger API 클라이언트, 네이버 블로그 Playwright 자동화, GitHub Pages 이미지 호스팅
 - **`schemas/`** — JSON 스키마
 
 사용자는 `/blog` 커맨드로 모드를 시작하고, 사진 파일 경로와 방문 메모를 자연어로 전달한다. Claude Code는 사진을 Read 도구로 시각 검사하여 장면·분위기·간판 등을 파악하고, 결과를 `tmp/photo-analysis-<날짜>.json`에 영속화한다. 비전 능력이 없는 모델이 실행 중이면 시각 분석을 건너뛰고 EXIF·캡션만으로 초안을 작성한다. 단계별 진행 상태는 `tmp/session-state-<slug>.json`에 기록되어 다른 세션이나 다른 모델이 중단 지점부터 이어 진행할 수 있다.
@@ -218,12 +218,48 @@ Blogger는 **첫 발행 시점에 URL을 영구 고정**한다. LIVE 된 글의 
 - 경로 난독화: `posts/{date}-{sha256hash}/{photo-NN.webp}` 형식으로 URL 추측 방지.
 - 블로그 HTML: CSS/JS로 우클릭 방지, 드래그 방지 적용 (`blogger-image-protection.html` 참고).
 
+## 네이버 블로그 발행 (Playwright 자동화)
+
+Blogger 대신 또는 함께 네이버 블로그에 발행할 수 있습니다.
+
+### 세션 설정 (1회 수행)
+```bash
+npm run naver:login
+```
+- 브라우저가 자동으로 열려 네이버 로그인 페이지가 표시됩니다.
+- 직접 ID/PW로 로그인하세요.
+- 로그인 후 세션이 `.naver-session.json`에 저장됩니다 (gitignore 대상).
+
+### 초안 생성
+```bash
+npm run naver:draft -- --title "제목" --content "./draft.html" [--category "카테고리"] [--tags "태그1,태그2"]
+```
+
+### 발행
+네이버 블로그 에디터에서 직접 글을 최종 확인한 후:
+```bash
+npm run naver:publish
+```
+
+**중요한 차이점** (Blogger vs 네이버):
+- **이미지 호스팅**: Blogger는 GitHub Pages (외부 URL) 사용, 네이버는 에디터에서 직접 로컬 파일 업로드.
+- **카테고리**: Blogger의 다중 라벨과 달리, 네이버는 1개 계층형 카테고리 + 자유 태그 사용.
+- **URL 슬러그**: Blogger는 SEO URL을 `YYYY-MM-DD` 형식으로 직접 지정, 네이버는 `blog.naver.com/{blogId}/{logNo}` (숫자 ID)로 자동 결정.
+- **세션 관리**: 네이버는 로그인/캡차가 빈번해 매 실행마다 로그인할 수 없으므로, 초기 1회 로그인 후 세션 재사용.
+
 ## 환경변수
 
 `.env` 파일에 다음 변수가 설정되어 있어야 합니다:
 
-블로그 파이프라인:
+**Blogger:**
 - `BLOGGER_BLOG_ID`, `BLOGGER_CLIENT_ID`, `BLOGGER_CLIENT_SECRET`, `BLOGGER_REFRESH_TOKEN` — Blogger API
-- `GITHUB_OWNER`, `GITHUB_ASSET_REPO`, `GITHUB_ASSET_BRANCH`, `GITHUB_ASSET_BASE_URL` — GitHub Pages 이미지 호스팅
+
+**네이버:**
+- 환경변수 불필요. `.naver-session.json` (gitignore)에 세션 저장.
+
+**이미지 호스팅:**
+- `GITHUB_OWNER`, `GITHUB_ASSET_REPO`, `GITHUB_ASSET_BRANCH`, `GITHUB_ASSET_BASE_URL` — GitHub Pages (Blogger 경로)
 - `GITHUB_TOKEN` (선택) — GitHub API 토큰, 없으면 `gh auth token` 사용
+
+**기타:**
 - `WATERMARK_TEXT` (선택) — 워터마크 텍스트, 기본값: `electronian-review.blogspot.com`
