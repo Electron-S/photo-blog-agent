@@ -9,7 +9,7 @@
   "title": "한글 블로그 제목",
   "content_html": "Blogger 호환 HTML 본문",
   "labels": ["라벨1", "라벨2"],
-  "summary": "텔레그램 검토용 짧은 한글 요약",
+  "summary": "발행 전 검토용 짧은 한글 요약",
   "fact_check_notes": ["확인이 필요한 사실 1", "확인이 필요한 사실 2"]
 }
 ```
@@ -21,7 +21,7 @@
 | `title` | 검색 가능한 핵심어와 상황이 담긴 한국어 제목 |
 | `content_html` | Blogger 호환 HTML. `<figure>`, `<img>`, `<figcaption>` 구조 사용. 1,800~2,500자 목표 |
 | `labels` | 5~10개 Blogger 라벨. 핵심 키워드 포함 |
-| `summary` | 텔레그램에서 빠르게 검토할 수 있는 짧은 요약 |
+| `summary` | 발행 전 사용자가 빠르게 검토할 수 있는 짧은 요약 |
 | `fact_check_notes` | 확인이 필요한 사실, 변동 가능한 정보, 누락된 내용 |
 
 ## Rules

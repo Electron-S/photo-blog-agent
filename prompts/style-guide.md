@@ -112,7 +112,7 @@
 
 - 주차 정보는 관련 문단에 자연스럽게 녹인다. 별도 "주차 안내" 섹션으로 분리하지 않는다.
 - 주차 무료/유료, 매장 이용 시 무료, 유효 조건 등 실용적인 정보를 포함한다.
-- 방문 전 반드시 알아야 할 핿팁(예: "주말 주차장 만차", "예약 필수")은 관련 문단에 자연스럽게 배치한다.
+- 방문 전 반드시 알아야 할 꿀팁(예: "주말 주차장 만차", "예약 필수")은 관련 문단에 자연스럽게 배치한다.
 
 ## Official Links
 
@@ -151,7 +151,7 @@
 
 ```html
 <figure style="margin:1.5em 0;text-align:center;position:relative;">
-  <img loading="lazy" width="960" height="640"
+  <img loading="lazy" width="1024" height="768"
        src="https://...photo-01.webp"
        alt="구체적이고 자연스러운 한국어 설명"
        style="max-width:100%;height:auto;" />

@@ -58,7 +58,7 @@ async function main() {
     }
     process.exit(1);
   }
-  console.log(`All ${imageCheck.broken.length === 0 ? '' : 'remaining '}image URLs verified.`);
+  console.log('All image URLs verified.');
 
   console.log('Creating Blogger draft...');
   const post = await createDraftPost({ title, content, labels });
