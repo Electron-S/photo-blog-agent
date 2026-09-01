@@ -38,5 +38,5 @@ async function main() {
 
 main().catch((err) => {
   console.error('오류:', err.message);
-  process.exit(1);
+  process.exit(err.exitCode || 1);
 });

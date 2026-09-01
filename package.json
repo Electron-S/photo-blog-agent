@@ -4,6 +4,7 @@
   "description": "사진 기반 Blogger 글 작성 에이전트 — 프롬프트, 스크립트, 설정",
   "private": true,
   "scripts": {
+    "test": "node --test test/",
     "blogger:auth": "node scripts/get-blogger-token.js",
     "blogger:test": "node scripts/test-blogger-api.js",
     "blogger:draft": "node scripts/create-draft.js",
@@ -22,7 +23,12 @@
     "axios": "^1.15.0",
     "dotenv": "^16.4.5",
     "exif-reader": "^2.0.3",
-    "playwright": "^1.48.0",
     "sharp": "^0.34.5"
+  },
+  "optionalDependencies": {
+    "playwright": "1.62.1"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }
