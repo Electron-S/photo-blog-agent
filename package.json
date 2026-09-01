@@ -14,6 +14,8 @@
     "blogger:publish": "node scripts/publish-post.js",
     "blogger:delete": "node scripts/delete-post.js",
     "naver:login": "node scripts/naver-login-setup.js",
+    "naver:doctor": "node scripts/naver-doctor.js",
+    "naver:inspect": "node scripts/naver-inspect.js",
     "naver:draft": "node scripts/naver-create-draft.js",
     "naver:publish": "node scripts/naver-publish-post.js",
     "assets:extract": "node scripts/extract-exif.js",

@@ -139,16 +139,39 @@ node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-
    (--slug-from-date 또는 --slug 필수)
 ```
 
-## 네이버 블로그 발행 (실험적 — 현재 미검증)
+## 네이버 블로그 발행 (재구축 중 — 실물 확인 게이트 대기)
 
-`scripts/naver-*.js` + `lib/naver-blog.js`에 Playwright 기반 자동화가 있지만
-**아직 한 번도 실제로 동작한 적이 없습니다.** 셀렉터가 실물 네이버
-SmartEditor DOM으로 검증되지 않았고, 발행 스크립트는 구조적 결함이 있습니다.
+`playwright`는 `optionalDependencies`입니다. 쓰려면
+`npm install --include=optional` 후 `npx playwright install chromium`.
 
-- `playwright`는 `optionalDependencies`입니다. 쓰려면
-  `npm install --include=optional` + `npx playwright install chromium`.
-- 미설치 상태에서 실행하면 exit 10과 설치 안내가 나옵니다.
-- 실물 검증 전까지는 Blogger 경로만 사용하세요.
+| 단계 | 상태 |
+|---|---|
+| 의존성·브라우저·디스플레이 프리플라이트 (`naver:doctor`) | 완료 |
+| 콘텐츠 파이프라인 (HTML → 블록, 로컬 이미지 해석, `--dry-run`) | 완료 |
+| 셀렉터 레지스트리 + 실패 시 DOM 덤프 | 완료 (셀렉터는 **추정값**) |
+| **실물 DOM 확인 (`naver:inspect`)** | **대기 — 사람이 네이버 계정으로 실행해야 함** |
+| 에디터 조작 · 발행 · 사후 검증 | 게이트 통과 후 착수 |
+
+`lib/naver-selectors.js`의 `VERIFIED_AT`이 `null`인 동안 실제 발행 경로는
+exit 12로 차단됩니다. 추정 셀렉터로 구현하면 "또 한 번도 안 돌아가는 코드"가
+되기 때문입니다. 지금 검증 가능한 것:
+
+```bash
+npm run naver:doctor                        # 프리플라이트 (계정 불필요)
+npm run naver:draft -- --html tmp/draft-<slug>.html --dry-run   # 블록 변환 (브라우저 불필요)
+npm run naver:login                         # 세션 수립 (headed 창 필요)
+npm run naver:inspect -- --dump --keep-open # 실물 셀렉터 확인
+```
+
+### Blogger와의 차이
+
+- **이미지**: Blogger는 GitHub Pages 외부 URL, 네이버는 **로컬 파일을 에디터에 직접 업로드**.
+  `upload-images.js`가 남긴 `tmp/assets/<date>-<hash12>/photo-NN.webp`를 쓰며,
+  파일이 없으면 exit 16으로 중단하고 **URL로 폴백하지 않습니다** (핫링킹/깨짐 방지).
+- **카테고리/태그**: 본문 에디터가 아니라 **발행 설정 레이어**에 있습니다.
+  따라서 임시저장만 하는 경로에서는 반영되지 않으며, 그 사실을 출력으로 알립니다.
+- **공개 발행**: `--visibility` 기본값은 `private`이고, `public`은
+  `NAVER_ALLOW_PUBLIC=1`을 **함께** 요구합니다 (exit 18).
 
 ## URL 슬러그 절대 규칙
 

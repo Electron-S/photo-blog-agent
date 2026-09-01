@@ -102,3 +102,62 @@ test('analyze-photos: --output 없으면 exit 1', () => {
   const r = run('analyze-photos.js', ['a.jpg']);
   assert.equal(r.status, 1);
 });
+
+// --- 네이버 (브라우저·계정 불필요한 경로만) ---
+
+test('naver:draft — 실물 확인 게이트 전에는 exit 12', () => {
+  const r = run('naver-create-draft.js', [
+    '--html', path.join(FIXTURES, 'draft-toscano.html'), '--title', '테스트',
+  ]);
+  // 이미지 해석(16)이 먼저 걸리거나 셀렉터 게이트(12)에 걸린다. 둘 다 정상 차단.
+  assert.ok([12, 16].includes(r.status), `status=${r.status}\n${r.stdout}${r.stderr}`);
+  assert.equal(r.status === 12 ? /VERIFIED_AT/.test(r.stderr) : true, true);
+});
+
+test('naver:draft — 이미지가 없으면 exit 16 (URL 폴백 금지)', () => {
+  const r = run('naver-create-draft.js', [
+    '--html', path.join(FIXTURES, 'draft-toscano.html'),
+    '--assets-root', path.join(os.tmpdir(), 'pba-no-such-assets'), '--dry-run',
+  ]);
+  assert.equal(r.status, 16, r.stdout + r.stderr);
+  assert.match(r.stderr, /핫링킹/);
+});
+
+test('naver:draft — 공개 발행 안전장치 exit 18', () => {
+  const args = [
+    '--html', path.join(FIXTURES, 'draft-toscano.html'), '--title', '테스트',
+    '--visibility', 'public',
+  ];
+  const noEnv = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'naver-create-draft.js'), ...args], {
+    encoding: 'utf8', cwd: ROOT, env: { ...process.env, NAVER_ALLOW_PUBLIC: '' },
+  });
+  // 이미지 해석이 먼저 걸릴 수 있으므로 18 또는 16 (둘 다 차단)
+  assert.ok([16, 18].includes(noEnv.status), `status=${noEnv.status}`);
+});
+
+test('naver:draft — 인자 오류는 exit 1', () => {
+  assert.equal(run('naver-create-draft.js', []).status, 1);
+  assert.equal(run('naver-create-draft.js', ['--html', 'a.html', '--visibility', 'secret']).status, 1);
+  assert.equal(run('naver-create-draft.js', ['--nope']).status, 1);
+  // 위치 인자는 받지 않는다 (--html을 써야 한다)
+  assert.equal(run('naver-create-draft.js', ['draft.html']).status, 1);
+});
+
+test('naver:publish — 무인자 "현재 에디터 발행"은 폐기됐다', () => {
+  const r = run('naver-publish-post.js', []);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /--draft-title/);
+});
+
+test('naver:publish — 재개 발행은 아직 미구현 (exit 12)', () => {
+  const r = run('naver-publish-post.js', ['--draft-title', '어떤 글']);
+  assert.equal(r.status, 12, r.stdout + r.stderr);
+});
+
+test('naver:doctor — 실행되고 항목별 결과를 낸다', () => {
+  const r = run('naver-doctor.js', ['--headless-smoke']);
+  assert.match(r.stdout, /playwright 모듈/);
+  assert.match(r.stdout, /셀렉터 실물 확인/);
+  // 세션이 없는 것이 정상 상태이므로 0이 아닐 수 있다
+  assert.ok([0, 1, 10, 11, 17].includes(r.status), `status=${r.status}`);
+});

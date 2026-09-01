@@ -1,42 +1,63 @@
+#!/usr/bin/env node
+// 네이버 발행.
+//
+// 예전 구현은 `context.newPage()`로 **빈 about:blank 페이지**를 열고 "발행"
+// 버튼을 찾았다. 에디터 상태는 브라우저 프로세스가 죽으면 사라지는 클라이언트
+// 상태이고, 서버에 "현재 에디터를 발행하라"는 엔드포인트가 없으므로 이 구조는
+// 원리적으로 성립하지 않는다.
+//
+// 대체 경로: naver-create-draft.js --publish (작성과 발행을 한 프로세스로).
+// 임시저장 목록에서 글을 열어 발행하는 경로(--draft-title)는 목록 UI를 실물로
+// 확인한 뒤에만 구현한다.
+
 require('dotenv').config();
 
-const { getArg, validateKnownFlags } = require('../lib/cli-args');
-const { launchBrowser, createAuthenticatedContext, publishPost } = require('../lib/naver-blog');
+const { NAVER_EXIT, NaverError, reportNaverError } = require('../lib/naver-errors');
+const { isVerified, verificationStatus } = require('../lib/naver-selectors');
 
 function printUsage() {
-  console.log('Usage: node naver-publish-post.js [--draft]');
+  console.log('Usage: node naver-publish-post.js --draft-title "제목" [--visibility private|public]');
   console.log('');
-  console.log('Options:');
-  console.log('  --draft   발행 대신 임시저장 (기본: 발행)');
+  console.log('  임시저장 목록에서 제목이 정확히 일치하는 글을 열어 발행합니다.');
+  console.log('  **아직 구현되지 않았습니다** — 임시저장 목록 UI가 실물로 확인되지 않았습니다.');
   console.log('');
-  console.log('참고: 이 스크립트는 현재 에디터 상태를 발행합니다.');
-  console.log('네이버 블로그 에디터에서 직접 글을 작성한 후 실행하세요.');
+  console.log('  지금은 대신 이 명령을 쓰세요:');
+  console.log('    npm run naver:draft -- --html <draft.html> --title "제목" --publish --visibility private');
+  console.log('');
+  console.log('종료 코드: 1=인자 오류, 12=셀렉터 미확인');
   process.exit(1);
 }
 
-async function main() {
-  validateKnownFlags(['--draft']);
+function main() {
+  const argv = process.argv.slice(2);
+  if (argv.includes('--help') || argv.includes('-h')) printUsage();
 
-  const isDraft = process.argv.includes('--draft');
-
-  console.log(`네이버 블로그 글을 ${isDraft ? '임시저장' : '발행'} 중...`);
-
-  const browser = await launchBrowser();
-
-  try {
-    const context = await createAuthenticatedContext(browser);
-    const result = await publishPost(context, { isDraft });
-
-    console.log(JSON.stringify(result, null, 2));
-  } catch (err) {
-    console.error('Publish failed:', err.message);
-    process.exit(1);
-  } finally {
-    await browser.close();
+  // 무인자 "현재 에디터 발행"은 폐기했다. 어떤 글을 발행할지 지정하지 않으면
+  // 엉뚱한 임시저장이 공개될 수 있다.
+  const idx = argv.indexOf('--draft-title');
+  const draftTitle = idx !== -1 ? argv[idx + 1] : null;
+  if (!draftTitle || draftTitle.startsWith('--')) {
+    console.error('Error: --draft-title이 필요합니다. 어떤 임시저장을 발행할지 명시해야 합니다.');
+    console.error('  (예전의 무인자 "현재 에디터 발행"은 원리적으로 동작하지 않아 폐기했습니다.)');
+    printUsage();
   }
+
+  throw new NaverError(
+    NAVER_EXIT.SELECTOR,
+    '임시저장 재개 발행은 아직 구현되지 않았습니다.\n'
+    + `  + ${verificationStatus()}\n`
+    + '  + 임시저장 목록 UI를 npm run naver:inspect 로 확인한 뒤에 구현합니다.\n'
+    + '  + 지금은 작성과 발행을 한 번에 하세요:\n'
+    + '      npm run naver:draft -- --html <draft.html> --title "제목" --publish --visibility private\n'
+    + `  + (셀렉터 확인 상태: ${isVerified() ? '확인됨' : '미확인'})`,
+  );
 }
 
-main().catch((err) => {
-  console.error('오류:', err.message);
-  process.exit(err.exitCode || 1);
-});
+if (require.main === module) {
+  try {
+    main();
+  } catch (err) {
+    reportNaverError(err);
+    process.exit(err.exitCode || 1);
+  }
+}
