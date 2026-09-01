@@ -15,49 +15,20 @@ Airtable paid plan: no
 
 ## 아키텍처
 
-```text
-[Claude Code /blog] → [photo-blog-agent scripts] → [Blogger API]
-                                             ↓
-                                       [GitHub Pages]
-```
+[README.md의 아키텍처 절](README.md#아키텍처)을 참조하세요. 다이어그램과 구성 요소 설명의 정본은 README입니다.
 
-- **Claude Code**: `/blog` 슬래시 커맨드로 진입하여 프롬프트를 읽고, 리서치, 초안 작성, API 호출을 담당.
-- **photo-blog-agent**: 프롬프트, 스크립트, 스키마, 설정을 제공하는 프로젝트.
-- **Blogger API**: 초안 생성, 수정, 발행, 삭제.
-- **GitHub Pages**: 이미지 호스팅.
+## 현재 상태와 목표
 
-## 현재 상태
+발행 글 수·AdSense 신청 여부처럼 자주 바뀌는 값은 문서에 적지 않습니다 (갱신되지 않아 곧 거짓이 됩니다).
+현황은 [블로그](https://electronian-review.blogspot.com)와 Blogger 대시보드에서 직접 확인하세요.
+
+방향만 고정합니다:
 
 ```text
-발행된 글: 2개
-블로그 URL: https://electronian-review.blogspot.com
-Blog ID: 109669205162281399
-검색 등록: Google/Naver/Bing/Daum 기본 등록 완료
-AdSense: 아직 신청 전 (글 10개 목표)
+1. 글을 꾸준히 쌓는다
+2. 소개, 문의, 개인정보처리방침 페이지를 만든다
+3. 글과 기본 페이지가 준비되면 AdSense 신청
 ```
-
-## 다음 목표
-
-```text
-1. 글을 총 10개까지 쓰기
-2. 소개, 문의, 개인정보처리방침 페이지 만들기
-3. 글 10개와 기본 페이지 준비 후 AdSense 신청
-```
-
-## 사용 가능한 npm scripts
-
-| 명령 | 용도 |
-|------|------|
-| `npm run assets:extract` | EXIF 메타데이터 추출 |
-| `npm run assets:analyze` | 사진 시각 분석 JSON 골격 생성 |
-| `npm run assets:upload` | 이미지 압축 & GitHub Pages 업로드 |
-| `npm run assets:test` | GitHub Pages 업로드 테스트 |
-| `npm run blogger:auth` | Blogger OAuth 토큰 획득 |
-| `npm run blogger:test` | Blogger API 연결 테스트 |
-| `npm run blogger:draft` | 초안 생성 (`--title`, `--content`, `--labels`) |
-| `npm run blogger:update` | 글 수정 (`--post-id`, `--title`, `--content`, `--labels`) |
-| `npm run blogger:publish` | 글 발행 (`--post-id`, `--slug` 또는 `--slug-from-date`) |
-| `npm run blogger:delete` | 글 삭제 (`--post-id`, `--draft-only`) |
 
 ## 이미지 호스팅
 
@@ -101,12 +72,10 @@ review_signals: 외부 리뷰 공통 장단점, 전체 분위기
 
 ## 프롬프트 파일
 
-| 파일 | 용도 |
-|------|------|
-| `prompts/style-guide.md` | 한국어 블로그 작성 스타일 가이드 |
-| `prompts/system-rules.md` | 모든 글 생성 단계에 적용되는 시스템 규칙 |
-| `prompts/blog-draft.md` | 첫 초안 생성 프롬프트 |
-| `prompts/visit-research.md` | 방문지 리서치 프롬프트 |
+[README.md의 프롬프트 표](README.md#프롬프트-prompts)를 참조하세요.
+
+워크플로우 Step 1~7의 정본은 `prompts/workflow-steps.md` 한 곳입니다.
+`/blog` 슬래시 커맨드와 `blog-agent` 에이전트가 이 파일을 공유합니다.
 
 ## Prompt Rules
 

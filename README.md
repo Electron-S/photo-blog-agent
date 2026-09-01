@@ -139,6 +139,17 @@ node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-
    (--slug-from-date 또는 --slug 필수)
 ```
 
+## 네이버 블로그 발행 (실험적 — 현재 미검증)
+
+`scripts/naver-*.js` + `lib/naver-blog.js`에 Playwright 기반 자동화가 있지만
+**아직 한 번도 실제로 동작한 적이 없습니다.** 셀렉터가 실물 네이버
+SmartEditor DOM으로 검증되지 않았고, 발행 스크립트는 구조적 결함이 있습니다.
+
+- `playwright`는 `optionalDependencies`입니다. 쓰려면
+  `npm install --include=optional` + `npx playwright install chromium`.
+- 미설치 상태에서 실행하면 exit 10과 설치 안내가 나옵니다.
+- 실물 검증 전까지는 Blogger 경로만 사용하세요.
+
 ## URL 슬러그 절대 규칙
 
 Blogger는 **첫 발행 시점에 URL을 영구 고정**한다. `publish-post.js`는 발행 직전 title을 슬러그(`YYYY-MM-DD`)로 변경 → 발행 → title 복원하는 트릭을 사용한다. 발행 전 DRAFT 단계에서 슬러그를 반드시 결정해야 하며, LIVE 된 글의 URL은 변경할 수 없다.
@@ -162,11 +173,9 @@ Blogger는 **첫 발행 시점에 URL을 영구 고정**한다. `publish-post.js
 
 ## 현재 상태
 
-```text
-발행된 글: 2개
-검색 등록: Google/Naver/Bing/Daum 기본 등록 완료
-AdSense: 아직 신청 전 (글 10개 목표)
-```
+발행 글 수·검색 등록·AdSense 신청 여부처럼 자주 바뀌는 값은 여기에 적지 않습니다
+(갱신되지 않아 곧 거짓이 됩니다). 현황은 [블로그](https://electronian-review.blogspot.com)와
+Blogger 대시보드에서 직접 확인하세요.
 
 ## 다음 목표
 

@@ -32,11 +32,37 @@ test('extractImageUrls — 여러 줄에 걸친 속성', () => {
   assert.deepEqual(extractImageUrls(html), ['https://x/a.webp']);
 });
 
-test('extractImageUrls — 작은따옴표 src는 인식하지 못한다 (알려진 한계)', () => {
-  // 정규식이 큰따옴표만 매칭한다. 프롬프트가 큰따옴표를 강제하므로 실사용에는
-  // 문제가 없지만, 작은따옴표를 쓰면 URL 검증이 조용히 건너뛰어진다는 사실을
-  // 테스트로 고정한다. 이 동작을 바꾸면 이 테스트도 함께 갱신할 것.
-  assert.deepEqual(extractImageUrls("<img src='https://x/a.webp'>"), []);
+test('extractImageUrls — 작은따옴표 src도 인식한다', () => {
+  // 예전 정규식 구현은 큰따옴표만 매칭해서, 작은따옴표를 쓰면 URL 검증을
+  // 조용히 건너뛰었다. 이제 lint-draft와 같은 파서를 재사용한다.
+  assert.deepEqual(extractImageUrls("<img src='https://x/a.webp'>"), ['https://x/a.webp']);
+});
+
+test('extractImageUrls — source의 srcset도 수집', () => {
+  assert.deepEqual(
+    extractImageUrls('<source srcset="https://x/a.webp 1x">'),
+    ['https://x/a.webp'],
+  );
+});
+
+test('mapWithConcurrency — 순서 보존과 동시성 제한', async () => {
+  const { mapWithConcurrency } = require('../lib/verify-images');
+  let running = 0;
+  let peak = 0;
+  const out = await mapWithConcurrency([1, 2, 3, 4, 5, 6, 7], 3, async (n) => {
+    running += 1;
+    peak = Math.max(peak, running);
+    await new Promise((r) => setTimeout(r, 5));
+    running -= 1;
+    return n * 2;
+  });
+  assert.deepEqual(out, [2, 4, 6, 8, 10, 12, 14], '입력 순서가 보존되어야 한다');
+  assert.ok(peak <= 3, `동시 실행이 ${peak}개로 제한을 넘었다`);
+});
+
+test('mapWithConcurrency — 빈 입력', async () => {
+  const { mapWithConcurrency } = require('../lib/verify-images');
+  assert.deepEqual(await mapWithConcurrency([], 4, async (x) => x), []);
 });
 
 test('extractImageUrls — 이미지 없음', () => {

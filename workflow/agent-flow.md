@@ -1,12 +1,15 @@
 # Agent Flow
 
-## MVP 1: Claude Code Blogger Flow
+## MVP 1: Claude Code 발행 플로우
 
 ```text
-1. 사용자가 Claude Code에서 /blog 모드로 진입하고 사진 경로와 방문 메모를 제공
-2. Claude Code가 prompts/ 파일을 읽고 스타일 가이드를 준비
-3. Claude Code가 사진을 분석하고 방문지를 파악
-4. Claude Code가 방문지 공식/신뢰 가능한 공개 정보를 리서치
+1. 사용자가 /blog 모드로 진입하거나 blog-agent를 호출하고, 사진 경로와 방문 메모를 제공
+2. prompts/workflow-steps.md(워크플로우 정본)와 style-guide/system-rules를 읽음
+3. scripts/extract-exif.js로 EXIF 메타데이터를 JSON에 저장 (primary_date = 방문 날짜)
+4. scripts/analyze-photos.js로 시각 분석 골격을 만들고 Read 도구로 사진을 보며 채움
+5. scripts/upload-images.js에 3의 JSON을 --metadata로 전달해 압축·업로드
+   (--output으로 width/height가 담긴 결과 JSON을 남김)
+6. 방문지 리서치 — 공식/신뢰 가능한 공개 정보 수집
    - place_info: 공식 명칭, 카테고리, 주소, 연락처
    - access: 대중교통(역/정류장, 노선, 출구, 도보), 주차
    - cost_and_hours: 운영시간, 입장료, 프로모션
@@ -14,15 +17,16 @@
    - neighborhood_context: 동네 특성, 알려진 이유, 계절 특징
    - visitor_tips: 혼잡도, 추천 시간대, 일반 동선
    - review_signals: 외부 리뷰 공통 장단점, 전체 분위기
-5. Claude Code가 scripts/extract-exif.js로 메타데이터를 JSON에 저장하고, 그 JSON을 scripts/upload-images.js의 --metadata로 전달 (EXIF 날짜 기반 폴더 경로)
-6. Claude Code가 scripts/analyze-photos.js로 시각 분석 골격을 생성하고 Read 도구로 사진을 보며 채움
-7. Claude Code가 블로그 초안을 JSON 형식으로 작성
-8. Claude Code가 scripts/create-draft.js로 Blogger에 초안 생성
-9. 사용자가 수정 요청
-10. Claude Code가 scripts/update-post.js로 기존 글 수정
+7. 블로그 초안 HTML 작성
+8. scripts/lint-draft.js로 자가 검증 (exit 8이면 고치고 반복)
+9. scripts/create-draft.js로 Blogger에 초안 생성
+10. 사용자가 수정 요청 → scripts/update-post.js로 기존 글 수정
 11. 사용자가 발행 승인
-12. Claude Code가 scripts/publish-post.js로 글 발행
+12. scripts/publish-post.js로 발행 (--slug-from-date로 URL을 촬영일에 고정)
 ```
+
+> 이전 판에서는 리서치가 4번, EXIF 추출이 5번, 시각 분석이 6번으로 적혀 있었으나
+> 실제 실행 순서와 뒤집혀 있었습니다. 정본은 `prompts/workflow-steps.md`입니다.
 
 ## Human Checkpoints
 
@@ -36,60 +40,8 @@
 
 ## 스크립트 사용법
 
-### EXIF 추출
-
-```bash
-# 1단계: EXIF 추출 (메타데이터 JSON 저장)
-node scripts/extract-exif.js <이미지경로들> --output tmp/metadata-<날짜>.json
-```
-
-### 사진 시각 분석 골격 생성
-
-```bash
-# 1.5단계: 시각 분석 JSON 골격 생성 (실제 분석은 Claude Code가 Read/Edit로 수행)
-node scripts/analyze-photos.js <이미지경로들> --output tmp/photo-analysis-<날짜>.json
-```
-
-### 이미지 업로드
-
-```bash
-# 2단계: --metadata로 EXIF 날짜를 폴더 경로에 반영
-node scripts/upload-images.js <이미지경로들> --metadata tmp/metadata-<날짜>.json --slug <슬러그>
-```
-
-`--metadata` 또는 `--date`를 명시하지 않으면 (또는 metadata의 `primary_date`가 null이면) **업로드 전에 즉시 exit 5로 거부된다** (네트워크 호출 없이 fail-fast — 멱등성 보호).
-
-### Blogger 초안 생성
-
-```bash
-node scripts/create-draft.js --title "제목" --content "HTML 본문" --labels "라벨1,라벨2"
-# 또는 파일에서 본문 읽기:
-node scripts/create-draft.js --title "제목" --content ./draft.html --labels "라벨1,라벨2"
-```
-
-### Blogger 글 수정
-
-```bash
-node scripts/update-post.js --post-id ID --content ./revised.html
-```
-
-### Blogger 글 발행
-
-```bash
-# 슬러그를 EXIF 촬영일로 강제
-node scripts/publish-post.js --post-id ID --slug-from-date tmp/metadata-<날짜>.json
-
-# 또는 직접 지정
-node scripts/publish-post.js --post-id ID --slug 2026-05-10
-```
-
-### Blogger 글 삭제
-
-```bash
-node scripts/delete-post.js --post-id ID
-# 초안만 삭제:
-node scripts/delete-post.js --post-id ID --draft-only
-```
+[README.md의 스크립트 절](README.md#스크립트-scripts)과 [종료 코드 표](README.md#종료-코드)를 참조하세요.
+명령·플래그·exit 코드의 정본은 README입니다.
 
 ## Success Criteria
 

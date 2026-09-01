@@ -6,39 +6,26 @@ Claude Code를 사용해 Blogger 글 품질과 운영 흐름을 검증합니다.
 
 ## Steps
 
-1. Claude Code에서 `/blog` 모드로 진입하고 사진 경로와 방문 메모를 제공합니다.
-2. Claude Code가 사진을 분석하고 방문지를 파악합니다.
-3. Claude Code가 방문지 공식 정보를 리서치합니다.
-4. [input-template.md](input-template.md)를 참고해 Claude Code에 추가 정보를 제공합니다.
-5. Claude Code가 EXIF 메타데이터를 추출하고 이미지를 압축하여 GitHub Pages에 업로드합니다:
-   ```bash
-   # 1단계: EXIF 추출 (JSON 저장)
-   node scripts/extract-exif.js <이미지경로들> --output tmp/metadata-<날짜>.json
+명령과 플래그의 정본은 [README.md](../README.md)이고, 워크플로우 Step 1~7의 정본은
+[prompts/workflow-steps.md](../prompts/workflow-steps.md)입니다. 여기서 다시 적지 않습니다.
 
-   # 1.5단계: 시각 분석 골격 생성
-   node scripts/analyze-photos.js <이미지경로들> --output tmp/photo-analysis-<날짜>.json
+이 문서는 `/blog` 자동 흐름을 쓰지 않고 손으로 진행할 때의 순서만 남깁니다:
 
-   # 2단계: --metadata로 EXIF 날짜를 폴더 경로에 반영
-   node scripts/upload-images.js <이미지경로들> --metadata tmp/metadata-<날짜>.json --slug <슬러그>
-   ```
-   `--metadata` 또는 `--date`를 빠뜨리면 (또는 metadata의 `primary_date`가 null이면) **업로드 전에 즉시 exit 5로 거부**됩니다 (네트워크 호출 없이 fail-fast — 멱등성 보호).
-6. Claude Code가 프롬프트 파일을 읽고 Blogger 초안을 작성합니다.
-7. Claude Code가 Blogger에 초안을 생성합니다:
-   ```bash
-   node scripts/create-draft.js --title "제목" --content ./draft.html --labels "라벨1,라벨2"
-   ```
-8. Blogger에서 사실관계, 사진 순서, 표현을 검수합니다.
-9. 수정이 필요하면 Claude Code에 요청하고, 수정된 내용으로 업데이트합니다:
-   ```bash
-   node scripts/update-post.js --post-id ID --content ./revised.html
-   ```
-10. 발행 준비가 되면 `--slug-from-date` 또는 `--slug`를 명시하고 발행합니다:
-    ```bash
-    # EXIF 촬영일을 URL 슬러그로 사용
-    node scripts/publish-post.js --post-id ID --slug-from-date tmp/metadata-<날짜>.json
-    ```
+```text
+1. EXIF 추출        node scripts/extract-exif.js <사진들> --output tmp/metadata-<날짜>.json
+2. 시각 분석 골격    node scripts/analyze-photos.js <사진들> --output tmp/photo-analysis-<날짜>.json
+3. 업로드           node scripts/upload-images.js <사진들> --metadata ... --slug ... --output ...
+4. 리서치           manual-workflow/input-template.md 참고
+5. 초안 작성        prompts/blog-draft.md + style-guide.md + system-rules.md
+6. 초안 검증        node scripts/lint-draft.js tmp/draft-<slug>.html --upload-result ...
+7. 초안 등록        node scripts/create-draft.js --title ... --content ... --labels ...
+8. 수정 루프        node scripts/update-post.js --post-id ... --content ...
+9. 발행             node scripts/publish-post.js --post-id ... --slug-from-date ...
+```
 
 ## Success Criteria
+
+(`workflow/agent-flow.md`와 동일한 기준입니다.)
 
 ```text
 사진 세트 1개당 1개의 Blogger draft 생성

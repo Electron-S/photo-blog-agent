@@ -12,7 +12,7 @@
 - **`lib/`** — Blogger API 클라이언트, 네이버 블로그 Playwright 자동화, GitHub Pages 이미지 호스팅
 - **`schemas/`** — JSON 스키마
 
-사용자는 `/blog` 커맨드로 모드를 시작하고, 사진 파일 경로와 방문 메모를 자연어로 전달한다. Claude Code는 사진을 Read 도구로 시각 검사하여 장면·분위기·간판 등을 파악하고, 결과를 `tmp/photo-analysis-<날짜>.json`에 영속화한다. 비전 능력이 없는 모델이 실행 중이면 시각 분석을 건너뛰고 EXIF·캡션만으로 초안을 작성한다. 단계별 진행 상태는 `tmp/session-state-<slug>.json`에 기록되어 다른 세션이나 다른 모델이 중단 지점부터 이어 진행할 수 있다.
+사용자는 `/blog` 커맨드(또는 `blog-agent` 자연어 호출)로 모드를 시작하고, 사진 파일 경로와 방문 메모를 자연어로 전달한다. **두 진입점 모두 `prompts/workflow-steps.md`(워크플로우 정본)를 읽어 Step 1~7을 따른다** — 워크플로우를 바꿀 때는 그 파일만 고친다. Claude Code는 사진을 Read 도구로 시각 검사하여 장면·분위기·간판 등을 파악하고, 결과를 `tmp/photo-analysis-<날짜>.json`에 영속화한다. 비전 능력이 없는 모델이 실행 중이면 시각 분석을 건너뛰고 EXIF·캡션만으로 초안을 작성한다. 단계별 진행 상태는 `tmp/session-state-<slug>.json`에 기록되어 다른 세션이나 다른 모델이 중단 지점부터 이어 진행할 수 있다.
 
 ## 사진 파이프라인
 
@@ -118,63 +118,11 @@ node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --metada
 | `npm run blogger:publish` | Blogger 글 발행 |
 | `npm run blogger:delete` | Blogger 글 삭제 |
 
-### EXIF 메타데이터 추출 (CLI)
+### CLI 레퍼런스
 
-```bash
-node scripts/extract-exif.js <이미지경로1> [이미지경로2] ... [--output tmp/metadata-YYYY-MM-DD.json]
-```
-
-사진에서 날짜, GPS 좌표, 카메라 정보를 추출한다. `--output`으로 JSON 파일을 저장하면 다른 에이전트가 메타데이터를 활용할 수 있다.
-
-### 사진 시각 분석 스캐폴더 (CLI)
-
-```bash
-node scripts/analyze-photos.js <이미지경로1> [이미지경로2] ... --output tmp/photo-analysis-YYYY-MM-DD.json
-```
-
-빈 JSON 골격(`photos[]`, 각 항목 `analysis_status: "pending"`)을 디스크에 쓴다. 실행 중인 모델이 사진을 Read 도구로 본 뒤 Edit으로 채워야 한다. 비전 능력이 없는 모델은 `analyzed_by_model_capability: "text-only"`로 표시하고 종료. 이미 채워진 파일은 재분석하지 않는다 (모델 간 핸드오프).
-
-### 이미지 업로드 (CLI)
-
-```bash
-node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --metadata tmp/metadata-<날짜>.json [--slug 슬러그] [--max-size-kb N]
-```
-
-- 반드시 `--metadata`로 1단계 출력을 연결할 것. `--date`도 `--metadata`도 없으면 (또는 metadata의 `primary_date`가 null이면) **업로드 전에 즉시 exit 5로 거부**된다 (네트워크 호출 없이 fail-fast — 멱등성 보호).
-- `--max-size-kb`로 AdSense 이미지 크기 기준을 변경할 수 있다 (기본값: 150KB, 허용 범위: 1~10000).
-
-### Blogger 초안 생성 (CLI)
-
-```bash
-node scripts/create-draft.js --title "제목" --content "HTML 본문" [--labels "라벨1,라벨2"]
-# 또는 HTML 파일 경로로:
-node scripts/create-draft.js --title "제목" --content ./draft.html --labels "라벨1,라벨2"
-```
-
-### Blogger 글 수정 (CLI)
-
-```bash
-node scripts/update-post.js --post-id POST_ID [--title "수정제목"] [--content "수정본문"] [--labels "라벨1,라벨2"]
-```
-
-`--labels`를 생략하면 기존 라벨이 보존된다.
-
-### Blogger 글 발행 (CLI)
-
-```bash
-# 사진 촬영 날짜를 URL 슬러그로 사용 (기본 경로)
-node scripts/publish-post.js --post-id POST_ID --slug-from-date tmp/metadata-<날짜>.json
-
-# 슬러그 직접 지정 (metadata의 primary_date가 null일 때)
-node scripts/publish-post.js --post-id POST_ID --slug 2026-05-10
-```
-
-- **`--slug`/`--slug-from-date` 중 하나는 필수.** 둘 다 없으면 exit 6으로 거부 — Blogger가 title 기반 한글 슬러그를 영구 고정하고 나중에 절대 못 바꾼다.
-- URL 컨벤션: `YYYY-MM-DD.html` (zero-padded). 사진 촬영 날짜 기반이라 글 작성 시점과 분리되고 정렬도 자연스러움.
-- Blogger API는 customPermalink를 공식 지원하지 않으므로 우회 트릭 사용: 발행 직전 title을 슬러그(YYYY-MM-DD)로 patch → publish → title 원복. Blogger가 발행 시점 title로 URL을 고정하고 이후 title 변경은 URL에 영향 없음에 의존.
-- 슬러그는 영문/숫자/하이픈만 허용. `--slug-from-date`의 metadata `primary_date`가 null이면 fail.
-- 같은 날짜의 두 번째 글은 Blogger가 자동으로 `-1`, `-2` 등의 suffix 추가 (자동 suffix는 정상 통과).
-- 발행 결과 URL이 요청 슬러그(또는 자동 suffix `-N`)와 다르면 **exit 7로 fail-fast**. 자동화 재시도는 같은 글이 LIVE 상태로 남아 있을 가능성을 인지하고 수동 확인 분기로 처리할 것.
+명령·플래그·종료 코드의 정본은 [README.md](README.md#스크립트-scripts)입니다.
+위 "사진 파이프라인"과 "블로그 글 작성 워크플로우" 절에 이 프로젝트에서 지켜야 할
+규칙과 그 이유를 적어 두었고, 전체 인자 목록은 각 스크립트의 `--help`(인자 없이 실행)로 확인합니다.
 
 ### URL 슬러그 — 절대 규칙
 
@@ -224,9 +172,16 @@ Blogger는 **첫 발행 시점에 URL을 영구 고정**한다. LIVE 된 글의 
 - 경로 난독화: `posts/{date}-{sha256hash}/{photo-NN.webp}` 형식으로 URL 추측 방지.
 - 블로그 HTML: CSS/JS로 우클릭 방지, 드래그 방지 적용 (`blogger-image-protection.html` 참고).
 
-## 네이버 블로그 발행 (Playwright 자동화)
+## 네이버 블로그 발행 (Playwright 자동화) — 실험적, 현재 미검증
 
-Blogger 대신 또는 함께 네이버 블로그에 발행할 수 있습니다.
+> **경고: 이 기능은 아직 한 번도 실제로 동작한 적이 없습니다.**
+> 셀렉터가 실물 네이버 SmartEditor DOM으로 검증되지 않았고,
+> `naver-publish-post.js`는 빈 페이지에서 발행 버튼을 찾는 구조적 결함이 있습니다.
+> 실물 검증이 끝나기 전까지는 **Blogger 경로만 사용하세요.**
+>
+> `playwright`는 `optionalDependencies`입니다 — 미설치 상태에서 실행하면
+> exit 10과 설치 안내(`npm install --include=optional`,
+> `npx playwright install chromium`)가 나옵니다.
 
 ### 세션 설정 (1회 수행)
 ```bash
