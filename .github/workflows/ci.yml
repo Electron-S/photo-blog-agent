@@ -1,0 +1,34 @@
+name: ci
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+env:
+  # playwright 패키지는 postinstall에서 브라우저 바이너리(~150MB)를 받는다.
+  # 유닛 테스트는 네이버 모듈을 건드리지 않으므로 다운로드만 막는다.
+  #
+  # `npm ci --omit=optional`을 쓰면 안 된다 — sharp도 플랫폼별 네이티브 바이너리를
+  # optionalDependencies(@img/sharp-*)로 받기 때문에 sharp까지 통째로 깨진다.
+  PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # windows-latest가 핵심이다. 초안 HTML의 \r\n 개행, 파일 쓰기 인코딩,
+        # 경로 조합처럼 WSL 로컬에서는 절대 드러나지 않는 문제를 여기서 잡는다.
+        os: [ubuntu-latest, windows-latest]
+        node: ['20.x', '22.x']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      # npm ci 자체가 lockfile 동기화 게이트다 — drift가 있으면 여기서 실패한다.
+      - run: npm ci
+      - run: npm test

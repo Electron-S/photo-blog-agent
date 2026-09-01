@@ -1,8 +1,13 @@
 require('dotenv').config();
 
-const fs = require('fs');
 const { getPost, publishPost, updatePost } = require('../lib/blogger');
 const { getArg, validateKnownFlags } = require('../lib/cli-args');
+const {
+  extractSlugFromUrl,
+  loadSlugFromMetadata,
+  slugMatchesWithAutoSuffix,
+  validateSlugArg,
+} = require('../lib/slug');
 
 // IMPORTANT: 이 함수는 출력 후 `process.exit(1)`로 종료한다. 호출자에 컨트롤이 돌아오지 않는다.
 // 미래 리팩터링 시 exit를 떼어내면 호출 측에서 fall-through로 silent 진행되는 사고가 나니
@@ -31,43 +36,11 @@ function failWithExit(code, message) {
   return err;
 }
 
-// 같은 날짜에 둘 이상의 글을 발행하면 Blogger가 두 번째부터 `-1`, `-2` suffix를 자동 부여한다.
-// 이건 정상 동작이므로 통과시키되, 그 외 임의 슬러그 변경은 silent하게 넘기지 않는다.
-// 슬러그는 main()에서 `^[a-zA-Z0-9-]+$`로 검증되어 regex 특수문자가 없음.
-// 주의: requested가 너무 짧으면 (예: "2026-05") 다른 글의 슬러그("2026-05-10")가 자동 suffix로
-// 오인되어 false positive 통과 가능. 자동화 흐름은 `--slug-from-date`로 항상 `YYYY-MM-DD`를
-// 강제하므로 사고 가능성은 낮지만, 수동 `--slug`로 짧은 prefix를 넣지 말 것.
-function slugMatchesWithAutoSuffix(actual, requested) {
-  if (actual === requested) return true;
-  return new RegExp(`^${requested}-\\d+$`).test(actual);
-}
-
-function loadSlugFromMetadata(metadataPath) {
-  const meta = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
-  if (typeof meta !== 'object' || meta === null) {
-    throw new Error(`metadata ${metadataPath}의 최상위 타입이 객체가 아닙니다.`);
-  }
-  if (typeof meta.primary_date !== 'string' || !meta.primary_date) {
-    throw new Error(`metadata ${metadataPath}의 primary_date가 null이거나 문자열이 아닙니다. --slug로 직접 지정하세요.`);
-  }
-  // YYYY-MM-DD 형식 + 실제 유효한 달력 날짜인지 검증. 슬러그 정규식만으로는
-  // "2026-13-99" 같은 invalid 날짜가 통과해서 URL이 그 문자열로 영구 고정되는 사고가 난다.
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(meta.primary_date)) {
-    throw new Error(`metadata ${metadataPath}의 primary_date "${meta.primary_date}"가 YYYY-MM-DD 형식이 아닙니다.`);
-  }
-  const [y, mo, d] = meta.primary_date.split('-').map(Number);
-  const date = new Date(y, mo - 1, d);
-  if (date.getFullYear() !== y || date.getMonth() + 1 !== mo || date.getDate() !== d) {
-    throw new Error(`metadata ${metadataPath}의 primary_date "${meta.primary_date}"가 유효한 달력 날짜가 아닙니다.`);
-  }
-  return meta.primary_date;
-}
-
 async function publishWithCustomSlug(postId, slug) {
   const original = await getPost(postId);
   if (!original) {
     throw new Error(`Blogger getPost(${postId})가 빈 응답을 반환했습니다.`);
-  }
+    }
 
   // Blogger URL은 첫 발행 시점에 title 기반으로 고정. 이미 LIVE면 슬러그 트릭은 URL을 못 바꾸고
   // title만 잠시 슬러그 문자열로 노출시키는 부작용만 남는다. 슬러그 불일치 상태에서 publish가
@@ -77,11 +50,10 @@ async function publishWithCustomSlug(postId, slug) {
     if (!original.url) {
       throw failWithExit(7, `Post ${postId}는 LIVE인데 응답에 url이 없습니다 — Blogger API 응답 이상. 수동 확인 필요.`);
     }
-    const match = original.url.match(/\/([^/]+)\.html$/);
-    if (!match) {
+    const currentSlug = extractSlugFromUrl(original.url);
+    if (!currentSlug) {
       throw failWithExit(7, `Post ${postId}의 LIVE URL "${original.url}"에서 슬러그를 파싱할 수 없습니다. URL 컨벤션 변경 가능성 — 수동 확인.`);
     }
-    const currentSlug = match[1];
     if (!slugMatchesWithAutoSuffix(currentSlug, slug)) {
       throw failWithExit(
         7,
@@ -94,7 +66,7 @@ async function publishWithCustomSlug(postId, slug) {
     }
     console.log(`Post ${postId}는 이미 LIVE 상태 (URL 슬러그 "${currentSlug}"). 요청 슬러그와 일치 — 단순 publish 수행.`);
     return await publishPost(postId);
-  }
+    }
   // DRAFT 외 상태(SOFT_TRASHED/SCHEDULED/미지)는 슬러그 트릭이 안전하지 않다 — 휴지통의 글에 title을
   // PATCH한 뒤 publish가 실패하면 슬러그 문자열이 남는 등 silent 데이터 손상 가능.
   if (original.status !== 'DRAFT') {
@@ -102,12 +74,12 @@ async function publishWithCustomSlug(postId, slug) {
       `Post ${postId}의 상태가 "${original.status}"입니다 (DRAFT/LIVE만 처리 가능). ` +
       `SOFT_TRASHED라면 복원, SCHEDULED라면 예약 해제 후 재시도하세요.`,
     );
-  }
+    }
 
   const originalTitle = original.title;
   if (!originalTitle) {
     throw new Error(`Post ${postId}의 title이 비어 있어 슬러그 트릭의 안전한 복원이 불가능합니다. 먼저 title을 채운 뒤 다시 시도하세요.`);
-  }
+    }
   console.log(`원래 title 백업: "${originalTitle}"`);
 
   console.log(`title을 슬러그용으로 변경: "${slug}"`);
@@ -120,7 +92,7 @@ async function publishWithCustomSlug(postId, slug) {
       `  + 부분 commit 가능성 — Blogger 에디터에서 post-id ${postId}의 현재 title을 확인하세요.\n` +
       `  + 원본 title: "${originalTitle}". 슬러그 문자열로 남아 있다면 원본으로 수동 복원 후 재시도.`;
     throw err;
-  }
+    }
 
   let published;
   try {
@@ -150,7 +122,7 @@ async function publishWithCustomSlug(postId, slug) {
       throw wrapped;
     }
     throw err;
-  }
+    }
 
   try {
     console.log('title을 원래대로 복원...');
@@ -171,22 +143,21 @@ async function publishWithCustomSlug(postId, slug) {
       `  + 현재 Blogger title은 "${slug}"로 남아 있음. 원본 title: "${originalTitle}".\n` +
       `  + 수동 복원: Blogger 에디터에서 post-id ${postId}의 title을 위 원본으로 변경.`,
     );
-  }
+    }
 
   // 슬러그 사후 검증 — 발행은 됐지만 URL이 의도와 다른 상태가 exit 0으로 끝나면
   // 자동화 파이프라인이 사고를 "성공"으로 인식한다 (silent failure). 자동 suffix `-N`만 허용.
   if (!published.url) {
     throw failWithExit(7, `발행 응답에 url이 없어 슬러그 검증 불가합니다. Blogger 에디터에서 post-id ${postId}의 URL을 수동 확인하세요.`);
-  }
-  const verifyMatch = published.url.match(/\/([^/]+)\.html$/);
-  if (!verifyMatch) {
+    }
+  const actualSlug = extractSlugFromUrl(published.url);
+  if (!actualSlug) {
     throw failWithExit(
       7,
       `발행 URL 형식을 파싱할 수 없어 슬러그 검증 불가: ${published.url}. URL 컨벤션 변경 가능성 — 수동 확인.\n` +
       `  + 글은 이미 LIVE 상태로 ${published.url}에 게시됨. 자동 재시도 금지 (재발행 시 옛 URL이 살아남아 redirect 사고 재발).`,
     );
-  }
-  const actualSlug = verifyMatch[1];
+    }
   if (!slugMatchesWithAutoSuffix(actualSlug, slug)) {
     throw failWithExit(
       7,
@@ -194,10 +165,10 @@ async function publishWithCustomSlug(postId, slug) {
       `  + 글은 이미 LIVE 상태로 ${published.url}에 게시됨.\n` +
       `  + 의도와 다른 URL이면 delete-post.js로 영구 삭제 후 슬러그를 재확인하고 새 글로 재발행하세요.`,
     );
-  }
+    }
   if (actualSlug !== slug) {
     console.log(`정보: Blogger가 자동 suffix를 추가했습니다. 요청: "${slug}", 실제: "${actualSlug}" (같은 날짜의 N번째 글).`);
-  }
+    }
 
   return published;
 }
@@ -212,14 +183,16 @@ async function main() {
   if (!postId) {
     console.error('Error: --post-id is required');
     printUsage();
-  }
+    }
 
   if (slugArg !== null && slugFromDate !== null) {
     console.error('Error: --slug와 --slug-from-date는 동시에 지정할 수 없습니다.');
     process.exit(1);
-  }
+    }
 
-  // 빈 슬러그(예: 셸 변수 치환 실패로 `--slug ""`)가 silent하게 auto-slug로 fallback되는 사고 차단.
+  // 빈 슬러그(예: 셸 변수 치환 실패로 `--slug ""`)를 "슬러그 미지정"(exit 6)으로
+  // 뭉뚱그리면 사용자가 원인을 못 찾는다. --slug를 넘겼다는 사실 자체가 신호이므로
+  // 별도 메시지로 먼저 거른다.
   if (slugArg !== null && slugArg.trim() === '') {
     console.error('Error: --slug에 빈 문자열이 전달되었습니다. (변수 치환 실패 의심)');
     process.exit(1);
@@ -236,7 +209,7 @@ async function main() {
       if (err.stack) console.error(err.stack);
       process.exit(1);
     }
-  }
+    }
 
   // 슬러그 미지정으로 publish하면 Blogger가 title 기반 한글 슬러그를 영구 고정한다.
   // 이후 URL 변경 시도(글 삭제 후 재발행 등)는 Google index에 옛 URL을 남기고
@@ -247,31 +220,13 @@ async function main() {
     console.error('  + 슬러그 없이 publish하면 Blogger가 title 기반 한글 슬러그를 영구 고정하고,');
     console.error('    이후 URL 변경 시도는 색인 오류(리디렉션 오류)의 직접 원인이 됩니다.');
     process.exit(6);
-  }
+    }
 
-  if (!/^[a-zA-Z0-9-]+$/.test(slug)) {
-    console.error(`Error: 슬러그는 영문/숫자/하이픈만 가능합니다. (받음: "${slug}")`);
+  const slugCheck = validateSlugArg(slug);
+  if (!slugCheck.ok) {
+    console.error(slugCheck.error);
     process.exit(1);
-  }
-
-  // 날짜 형식 슬러그(YYYY-MM-DD)인데 zero-padding이 안 된 경우 차단.
-  // 예: "2026-5-4" → "2026-05-04"로 수정 필요.
-  // URL이 영구 고정되므로 비일관성은 Google 색인에 악영향을 줌.
-  const dateLikeSlug = slug.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if (dateLikeSlug) {
-    const [, yStr, moStr, dStr] = dateLikeSlug;
-    const zeroPadded = `${yStr}-${moStr.padStart(2, '0')}-${dStr.padStart(2, '0')}`;
-    if (slug !== zeroPadded) {
-      console.error(`Error: 날짜 슬러그는 zero-padding이 필요합니다. "${slug}" → "${zeroPadded}"으로 지정하세요.`);
-      process.exit(1);
     }
-    const y = Number(yStr), mo = Number(moStr), d = Number(dStr);
-    const date = new Date(y, mo - 1, d);
-    if (date.getFullYear() !== y || date.getMonth() + 1 !== mo || date.getDate() !== d) {
-      console.error(`Error: 슬러그 "${slug}"는 유효한 달력 날짜가 아닙니다.`);
-      process.exit(1);
-    }
-  }
 
   console.log(`Publishing Blogger post ${postId} with slug "${slug}"...`);
   const post = await publishWithCustomSlug(postId, slug);
@@ -285,16 +240,22 @@ async function main() {
   }, null, 2));
 }
 
-main().catch((err) => {
-  // err.message와 err.response.data를 모두 출력 — 한쪽을 다른 쪽이 덮어 사용자 안내 문구
+// require.main 가드: 테스트가 이 파일을 require해도 CLI가 실행되지 않게 한다.
+// (예전에는 require만 해도 usage를 찍고 process.exit(1) 했다.)
+if (require.main === module) {
+  main().catch((err) => {
+    // err.message와 err.response.data를 모두 출력 — 한쪽을 다른 쪽이 덮어 사용자 안내 문구
   // (예: 슬러그 트릭의 수동 복원 가이드)가 silent하게 사라지는 사고를 막는다.
-  console.error('Publish failed:', err.message);
-  if (err.stack) {
-    console.error(err.stack);
-  }
-  if (err.response?.data) {
-    console.error('API response:', JSON.stringify(err.response.data));
-  }
-  // failWithExit가 부여한 의미별 exit code(7=슬러그 검증 실패 등) 전파. 없으면 일반 실패(1).
-  process.exit(err.exitCode || 1);
-});
+    console.error('Publish failed:', err.message);
+    if (err.stack) {
+      console.error(err.stack);
+    }
+    if (err.response?.data) {
+      console.error('API response:', JSON.stringify(err.response.data));
+    }
+    // failWithExit가 부여한 의미별 exit code(7=슬러그 검증 실패 등) 전파. 없으면 일반 실패(1).
+    process.exit(err.exitCode || 1);
+  });
+}
+
+module.exports = { publishWithCustomSlug };
