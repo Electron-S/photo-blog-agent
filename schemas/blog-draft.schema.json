@@ -24,7 +24,8 @@
         "type": "string",
         "minLength": 1
       },
-      "maxItems": 10
+      "maxItems": 10,
+      "minItems": 5
     },
     "summary": {
       "type": "string"
@@ -35,5 +36,6 @@
         "type": "string"
       }
     }
-  }
+  },
+  "$comment": "문서용 참조 스키마입니다. 런타임 검증에는 쓰이지 않습니다 (ajv 등 검증 라이브러리 미사용). prompts/blog-draft.md가 실제 계약입니다."
 }

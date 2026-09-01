@@ -108,6 +108,8 @@ node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --metada
 | `npm run assets:extract` | EXIF 메타데이터 추출 |
 | `npm run assets:analyze` | 사진 시각 분석 JSON 골격 생성 |
 | `npm run assets:upload` | 이미지 압축 & GitHub Pages 업로드 |
+| `npm run lint:draft` | 초안 HTML 규칙 검증 (exit 8=위반) |
+| `npm test` | 유닛 테스트 (`node --test test/`) |
 | `npm run assets:test` | GitHub Pages 업로드 테스트 |
 | `npm run blogger:auth` | Blogger OAuth 토큰 획득 |
 | `npm run blogger:test` | Blogger API 연결 테스트 |
@@ -194,6 +196,7 @@ Blogger는 **첫 발행 시점에 URL을 영구 고정**한다. LIVE 된 글의 
 | `prompts/system-rules.md` | 모든 글 생성 단계에 적용되는 시스템 규칙 |
 | `prompts/blog-draft.md` | 첫 초안 생성 프롬프트 |
 | `prompts/visit-research.md` | 방문지 리서치 프롬프트 |
+| `prompts/workflow-steps.md` | **워크플로우 정본 (Step 1~7).** `/blog` 커맨드와 `blog-agent`가 공유한다 |
 
 블로그 글을 작성하거나 수정할 때 반드시 이 세 파일을 읽고 규칙을 따르세요.
 
@@ -205,7 +208,8 @@ Blogger는 **첫 발행 시점에 URL을 영구 고정**한다. LIVE 된 글의 
 | --- | --- | --- |
 | `tmp/metadata-<날짜>.json` | EXIF 추출 직후 | 사진별 EXIF, `primary_date`, `gps_center` |
 | `tmp/photo-analysis-<날짜>.json` | 시각 분석 단계 | 빈 골격을 스크립트가 만들고 비전 모델이 채움. `analyzed_by_model_capability`로 vision/text-only 분기 표시 |
-| `tmp/session-state-<slug>.json` | 업로드 성공 후 | `steps_completed`/`steps_remaining`/`post_id`/`post_url` 등. 단계 종료마다 갱신 |
+| `tmp/upload-<slug>.json` | 업로드 직후 (`--output`) | 이미지별 `webpUrl`·`webpPath`·`width`·`height`. 초안의 `<img>` 치수 출처이자 lint의 `--upload-result` 입력 |
+| `tmp/session-state-<slug>.json` | 업로드 성공 후 | `steps_completed`/`steps_remaining`/`post_id`/`post_url` 등. **`scripts/session-state.js`로만 갱신** (직접 Write 금지 — 두 배열을 손으로 동기화하면 재개가 조용히 깨진다) |
 | `tmp/draft-<slug>.html` | 초안 작성 | Blogger에 등록된 HTML 본문 (수정 루프 시 Edit 대상) |
 
 핵심 원칙:

@@ -23,6 +23,7 @@
 
 | 파일 | 용도 |
 |------|------|
+| `workflow-steps.md` | **워크플로우 정본 (Step 1~7).** `/blog` 커맨드와 `blog-agent`가 공유 |
 | `style-guide.md` | 한국어 블로그 작성 스타일 가이드 |
 | `system-rules.md` | 모든 글 생성 단계에 적용되는 시스템 규칙 |
 | `blog-draft.md` | 첫 초안 생성 프롬프트 |
@@ -35,6 +36,8 @@
 | `npm run assets:extract` | EXIF 메타데이터 추출 |
 | `npm run assets:analyze` | 사진 시각 분석 JSON 골격 생성 |
 | `npm run assets:upload` | 이미지 압축 & GitHub Pages 업로드 |
+| `npm run lint:draft` | 초안 HTML 규칙 검증 (`--upload-result`로 치수 대조, exit 8=위반) |
+| `npm test` | 유닛 테스트 |
 | `npm run assets:test` | GitHub Pages 업로드 테스트 |
 | `npm run blogger:auth` | Blogger OAuth 토큰 획득 |
 | `npm run blogger:test` | Blogger API 연결 테스트 |
@@ -61,8 +64,17 @@ node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-
 
 | 모듈 | 용도 |
 |------|------|
-| `blogger.js` | Blogger API 클라이언트 (초안 생성, 수정, 발행) |
+| `blogger.js` | Blogger API 클라이언트 (초안 생성, 수정, 발행, 삭제) |
 | `github-assets.js` | 이미지 압축(sharp) & GitHub Pages 업로드 |
+| `asset-paths.js` | 슬러그·경로 해시 (의존성 0, sharp를 끌고 오지 않음) |
+| `naver-blog.js` | 네이버 블로그 Playwright 자동화 (**실험적 — 미검증**) |
+| `cli-args.js` | CLI 인자 파싱 |
+| `slug.js` | Blogger URL 슬러그 검증 |
+| `exif.js` | EXIF 값 정규화 |
+| `html-parse.js` | 초안 HTML 토크나이저 (미닫힘 태그를 오류로 표면화) |
+| `korean-text.js` | 글자수·문장수·이모지 계량 |
+| `lint-draft.js` | 초안 규칙 엔진 |
+| `session-state.js` | 세션 진행 상태 |
 | `verify-images.js` | 본문 내 이미지 URL 검증 |
 
 ### JSON 스키마 (`schemas/`)
@@ -71,6 +83,9 @@ node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-
 |------|------|
 | `blog-draft.schema.json` | 블로그 초안 출력 스키마 |
 | `visit-research.schema.json` | 방문지 리서치 출력 스키마 |
+| `session-state.schema.json` | 세션 상태 스키마 |
+
+스키마는 **문서·외부 도구용 참조**입니다. 런타임 검증에는 쓰이지 않습니다 (이 저장소에 JSON Schema 검증 라이브러리가 없습니다) — `lib/session-state.js`의 손수 검증과 `prompts/*.md`가 실제 계약입니다.
 
 ## 사진 파이프라인
 
