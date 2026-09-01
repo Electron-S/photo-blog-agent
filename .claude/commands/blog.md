@@ -152,17 +152,29 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/upload-images.js <사진들> \
 
 1. `tmp/photo-analysis-<날짜>.json`을 Read해서 채워진 `scene_description`·`text_visible`·`notable_objects`를 본문 묘사에 활용합니다 (`analyzed_by_model_capability`가 `"text-only"`면 EXIF·캡션만으로 진행).
 2. HTML 본문을 `/home/cyyoo/develop/photo-blog-agent/tmp/draft-<slug>.html`로 Write.
-3. 제목·라벨을 정함.
-4. Blogger 초안 등록:
+3. **초안을 lint로 자가 검증합니다** (Blogger에 올리기 전에 오프라인으로 끝냅니다):
+   ```bash
+   node /home/cyyoo/develop/photo-blog-agent/scripts/lint-draft.js \
+     /home/cyyoo/develop/photo-blog-agent/tmp/draft-<slug>.html \
+     --upload-result /home/cyyoo/develop/photo-blog-agent/tmp/upload-<slug>.json \
+     --format json
+   ```
+   - exit 8이면 `errors[]`를 전부 읽고 `tmp/draft-<slug>.html`을 Edit으로 고친 뒤 **통과할 때까지 반복**합니다.
+   - `warnings[]`는 차단하지 않지만, 문체 관련 지적이므로 가능하면 함께 고칩니다.
+   - `stats.bodyChars`가 1,800 미만이면 내용을 늘립니다. **캡션을 늘려서 채우지 마세요** — 글자수는 figcaption·alt를 제외하고 셉니다.
+   - `img-dimensions-match`가 뜨면 업로드 결과 JSON의 `width`/`height`를 그대로 옮겨 적습니다.
+4. 제목·라벨을 정함.
+5. Blogger 초안 등록 (여기서도 lint가 한 번 더 돌아 exit 8로 차단합니다):
    ```bash
    node /home/cyyoo/develop/photo-blog-agent/scripts/create-draft.js \
      --title "제목" \
      --content /home/cyyoo/develop/photo-blog-agent/tmp/draft-<slug>.html \
-     --labels "라벨1,라벨2,..."
+     --labels "라벨1,라벨2,..." \
+     --upload-result /home/cyyoo/develop/photo-blog-agent/tmp/upload-<slug>.json
    ```
-5. 응답에서 받은 `post-id`를 잘 기억해 둡니다 (이후 update/publish에 필요).
-6. **session-state 갱신**: `tmp/session-state-<slug>.json`을 Read한 뒤 `steps_completed`에 `"research"`, `"draft"` 추가, `steps_remaining`에서 제거, `draft_path`·`post_id`·`last_updated` 채워서 Write.
-7. 사용자에게 초안 요약(제목, 라벨, fact_check_notes 핵심)을 보여줍니다.
+6. 응답에서 받은 `post-id`를 잘 기억해 둡니다 (이후 update/publish에 필요).
+7. **session-state 갱신**: `tmp/session-state-<slug>.json`을 Read한 뒤 `steps_completed`에 `"research"`, `"draft"` 추가, `steps_remaining`에서 제거, `draft_path`·`post_id`·`last_updated` 채워서 Write.
+8. 사용자에게 초안 요약(제목, 라벨, fact_check_notes 핵심)을 보여줍니다.
 
 ### Step 6 — 수정 루프
 
@@ -176,6 +188,7 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/upload-images.js <사진들> \
      --content /home/cyyoo/develop/photo-blog-agent/tmp/draft-<slug>.html
    ```
 3. `--labels`는 생략해서 기존 라벨이 보존되도록 합니다. 라벨까지 바꾸려는 경우에만 명시.
+   - `update-post.js`도 `--content`를 줄 때는 lint를 돌립니다. exit 8이면 본문을 고치고 재시도합니다.
 4. 사용자가 명시적으로 "발행해줘", "OK 발행", "올려줘" 등 발행 의사를 표명할 때까지 이 단계 반복.
 
 ### Step 7 — 발행 (사용자 OK 필수)
@@ -202,7 +215,7 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/publish-post.js \
 2. **추측 금지**: 장소·날짜·메뉴·가격에 확신이 없으면 사용자에게 질문하거나 "확인 필요"로 표기. 만들어내지 않습니다.
 3. **slug 멱등성**: 세션 내 한 번 정한 slug 유지. upload-images / draft 파일명 모두 같은 slug 사용.
 4. **사용자 OK 없이 발행 금지**: 수정·업데이트는 자동, 발행만은 명시적 동의 필요.
-5. **exit 코드 우회 금지**: extract-exif/upload-images/analyze-photos/publish-post의 exit 2/3/4/5/6/7은 모두 root cause가 있는 신호. `--no-verify`나 임의 fallback 사용 금지.
+5. **exit 코드 우회 금지**: exit 2/3/4/5/6/7/8은 모두 root cause가 있는 신호입니다. `--no-verify`나 임의 fallback 사용 금지. 특히 **exit 8(lint 위반)은 우회 플래그가 아예 없습니다** — 본문을 고치는 것이 유일한 해결입니다.
 6. **사진이 한 장도 없으면 진행 안 함**: 글의 원본성은 사진에서 나옴. 텍스트만으로 글을 만들지 않습니다.
 7. **시각 분석은 영속화**: Step 2.5 직후 `tmp/photo-analysis-<날짜>.json`을 채우면, 같은 글의 다음 세션/모델이 그 내용을 그대로 읽어서 사용한다. 이미 `analyzed_by_model_capability`가 채워진 파일은 다시 Read해서 재분석하지 않는다.
 8. **세션 상태는 slug 단위**: Step 3 이후 모든 단계 종료 시 `tmp/session-state-<slug>.json`을 갱신해 중단 지점부터 재개 가능하게 둔다. 모드 진입 시 이 파일이 있으면 사용자에게 이어 진행 여부를 묻는다.

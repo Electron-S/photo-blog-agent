@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "test": "node --test test/",
+    "lint:draft": "node scripts/lint-draft.js",
     "blogger:auth": "node scripts/get-blogger-token.js",
     "blogger:test": "node scripts/test-blogger-api.js",
     "blogger:draft": "node scripts/create-draft.js",

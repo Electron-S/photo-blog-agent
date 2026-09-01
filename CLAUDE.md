@@ -65,6 +65,8 @@ node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --metada
 - `extract-exif.js`: 0=성공, 1=일반 실패, 2=`--output` 쓰기 실패(stdout 미출력), 3=지원 이미지 없음
 - `upload-images.js`: 0=전부 정상, 1=업로드/검증 실패, 2=`--output` 쓰기 실패, 4=품질 저하(fallback/oversize/치수 결손), 5=날짜 출처 미상으로 업로드 거부 (`--metadata` 또는 `--date` 명시 필요, 멱등성 보호)
 - `publish-post.js`: 0=성공, 1=일반 실패, 6=`--slug`/`--slug-from-date` 미지정 거부, 7=슬러그 검증 실패 (LIVE 영구 고정 URL과 mismatch 또는 발행 후 사후 검증 mismatch — 자동 suffix `-N`은 통과)
+- `delete-post.js`: 0=성공(또는 `--draft-only`로 건너뜀), 1=일반 실패, 7=삭제 후 옛 URL이 아직 살아 있음 (휴지통 확인 필요)
+- `lint-draft.js` / `create-draft.js` / `update-post.js`: 8=초안 HTML 규칙 위반 (error 1건 이상)
 
 ## 블로그 글 작성 워크플로우
 
