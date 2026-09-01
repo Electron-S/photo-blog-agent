@@ -99,8 +99,9 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/upload-images.js <사진들> \
 
 - slug는 영문/숫자/하이픈만. 장소·테마를 짧게 (예: `seokchon-lake-spring`, `omurice-jamsil`).
 - exit 5 (날짜 출처 미상)가 나면 metadata의 `primary_date`가 null이라는 뜻 — Step 2 결과를 다시 확인하거나 `--date YYYY-MM-DD`를 추가해 재시도. 멱등성 보호이므로 우회하지 않습니다.
-- exit 4 (fallback/품질 저하)는 경고로만 기록하고 진행. AdSense 기준(150KB) 초과 시 사용자에게 알립니다.
-- 업로드 결과로 WebP URL 목록을 받고, 각 이미지의 width/height도 함께 확인해 둡니다.
+- exit 4 (품질 저하: fallback/oversize/치수 결손)는 경고로만 기록하고 진행. AdSense 기준(150KB) 초과나 `summary.missingDimensions > 0`이면 사용자에게 알립니다.
+- 업로드 결과 JSON의 `images[]`에서 `webpUrl`과 **`width`/`height`를 그대로 받아 둡니다.** 초안의 `<img>`에 이 값을 옮겨 적습니다. `null`이면 추측하지 말고 그 이미지를 빼거나 사용자에게 보고합니다.
+- `--output tmp/upload-<slug>.json`을 함께 지정하면 결과가 파일로 남아 이후 단계에서 재사용할 수 있습니다.
 
 **Step 3 종료 시 — session-state 첫 생성**: slug가 확정되었으므로 `tmp/session-state-<slug>.json`을 Write합니다:
 

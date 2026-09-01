@@ -1,43 +1,56 @@
 require('dotenv').config();
 
+const fs = require('fs');
 const path = require('path');
 const { uploadBlogImages } = require('../lib/github-assets');
 
 const args = process.argv.slice(2);
 
 function printUsage() {
-  console.log('Usage: node upload-images.js <image1> [image2] ... [--metadata path] [--date YYYY-MM-DD] [--slug slug] [--work-dir dir] [--max-size-kb N]');
+  console.log('Usage: node upload-images.js <image1> [image2] ... [--metadata path] [--date YYYY-MM-DD] [--slug slug] [--work-dir dir] [--max-size-kb N] [--output path] [--local-only]');
   console.log('');
   console.log('Options:');
   console.log('  --metadata      extract-exif.js 출력 JSON 경로. primary_date를 게시일로 사용');
   console.log('  --date          게시일 (--metadata의 primary_date보다 우선; 둘 다 없거나 null이면 exit 5)');
   console.log('  --slug          URL 슬러그 (기본값: 첫 번째 이미지 파일명에서 생성)');
-  console.log('  --work-dir      압축 이미지 임시 디렉토리 (기본값: ./tmp/assets/<date>-<slug>)');
+  console.log('  --work-dir      압축 이미지 임시 디렉토리 (기본값: ./tmp/assets/<date>-<hash>)');
   console.log('  --max-size-kb   AdSense 이미지 크기 기준 KB (기본값: 150)');
+  console.log('  --output        결과 JSON 저장 경로 (예: tmp/upload-<slug>.json). lint-draft --upload-result에 사용');
+  console.log('  --local-only    GitHub 업로드/검증 생략, 압축까지만 (네이버 발행 경로)');
   console.log('');
   console.log('날짜 우선순위: --date > --metadata의 primary_date > (없으면 exit 5, 멱등성 보호)');
+  console.log('종료 코드: 0=전부 정상, 1=업로드/검증 실패, 2=--output 쓰기 실패, 4=품질 저하(fallback/oversize/치수 결손), 5=날짜 출처 미상');
   process.exit(1);
 }
 
-function getArg(name) {
-  const idx = args.indexOf(name);
-  if (idx === -1 || idx + 1 >= args.length) return null;
-  return args[idx + 1];
-}
+const FLAGS_WITH_VALUE = new Set(['--metadata', '--date', '--slug', '--work-dir', '--max-size-kb', '--output']);
+const BOOLEAN_FLAGS = new Set(['--local-only']);
 
-const FLAGS_WITH_VALUE = new Set(['--metadata', '--date', '--slug', '--work-dir', '--max-size-kb']);
-
+// upload-images는 위치 인자(이미지 경로)를 받으므로 lib/cli-args.js의 getArg를 그대로
+// 쓸 수 없다. 대신 같은 검증 규칙(값 누락·플래그 중복·미지 플래그 거부)을 여기서 지킨다.
 function parseArgs() {
   const imagePaths = [];
+  const values = new Map();
+  const flags = new Set();
+
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (FLAGS_WITH_VALUE.has(a)) {
+      if (values.has(a)) {
+        console.error(`Error: 플래그 "${a}"가 중복 지정되었습니다.`);
+        printUsage();
+      }
       const value = args[i + 1];
-      if (!value || value.startsWith('--')) {
+      if (value === undefined || value.startsWith('--')) {
         console.error(`Error: ${a} requires a value`);
         printUsage();
       }
+      values.set(a, value);
       i += 1;
+      continue;
+    }
+    if (BOOLEAN_FLAGS.has(a)) {
+      flags.add(a);
       continue;
     }
     if (a.startsWith('--')) {
@@ -46,7 +59,8 @@ function parseArgs() {
     }
     imagePaths.push(a);
   }
-  return imagePaths;
+
+  return { imagePaths, get: (n) => (values.has(n) ? values.get(n) : null), has: (n) => flags.has(n) };
 }
 
 function parseMaxSizeKB(raw) {
@@ -59,9 +73,26 @@ function parseMaxSizeKB(raw) {
   return n;
 }
 
+// --date는 폴더 경로에 그대로 박혀 멱등성의 기준이 된다. 형식이 틀린 값이
+// uploadBlogImages 깊은 곳에서 throw되면 exit 1이 되어 exit 5(날짜 출처 미상)와
+// 의미가 섞이므로, CLI 단에서 먼저 거른다.
+function validateExplicitDate(raw) {
+  if (raw == null) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    console.error(`Error: --date 형식이 YYYY-MM-DD가 아닙니다: "${raw}"`);
+    process.exit(1);
+  }
+  const [y, mo, d] = raw.split('-').map(Number);
+  const dt = new Date(y, mo - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() + 1 !== mo || dt.getDate() !== d) {
+    console.error(`Error: --date "${raw}"는 유효한 달력 날짜가 아닙니다.`);
+    process.exit(1);
+  }
+  return raw;
+}
+
 function readMetadataPrimaryDate(metadataPath) {
   if (!metadataPath) return { value: null, reason: 'no_metadata_arg' };
-  const fs = require('fs');
   let raw;
   try {
     raw = fs.readFileSync(metadataPath, 'utf-8');
@@ -96,9 +127,9 @@ function readMetadataPrimaryDate(metadataPath) {
 }
 
 async function main() {
-  const imagePaths = parseArgs();
-  const metadata = readMetadataPrimaryDate(getArg('--metadata'));
-  const explicitDate = getArg('--date');
+  const { imagePaths, get, has } = parseArgs();
+  const metadata = readMetadataPrimaryDate(get('--metadata'));
+  const explicitDate = validateExplicitDate(get('--date'));
   const today = new Date().toISOString().slice(0, 10);
 
   let date;
@@ -119,16 +150,17 @@ async function main() {
     process.exit(5);
   }
 
-  const slug = getArg('--slug');
-  const workDir = getArg('--work-dir');
-  const maxSizeKB = parseMaxSizeKB(getArg('--max-size-kb'));
+  const slug = get('--slug');
+  const workDir = get('--work-dir');
+  const outputPath = get('--output');
+  const localOnly = has('--local-only');
+  const maxSizeKB = parseMaxSizeKB(get('--max-size-kb'));
 
   if (imagePaths.length === 0) {
     console.error('Error: at least one image path is required');
     printUsage();
   }
 
-  const fs = require('fs');
   for (const imgPath of imagePaths) {
     if (!fs.existsSync(imgPath)) {
       console.error(`Error: file not found: ${imgPath}`);
@@ -140,20 +172,29 @@ async function main() {
   if (slug) options.slug = slug;
   if (workDir) options.workDir = workDir;
   if (maxSizeKB !== undefined) options.maxSizeKB = maxSizeKB;
+  if (localOnly) options.localOnly = true;
 
-  console.error(`Uploading ${imagePaths.length} image(s)...`);
+  console.error(`${localOnly ? 'Compressing' : 'Uploading'} ${imagePaths.length} image(s)...`);
   const { images, summary } = await uploadBlogImages(imagePaths, options);
 
-  console.log(JSON.stringify({
+  const result = {
     date,
     dateSource,
     images: images.map((item) => ({
       index: item.index,
       originalPath: item.originalPath,
+      // 로컬 압축본 경로. 네이버 발행이 에디터에 직접 올릴 파일이며,
+      // 이게 없으면 하위 단계가 <date>-<hash12> 폴더명을 재계산해야 한다.
+      webpPath: item.webpPath ?? null,
       webpUrl: item.webpUrl,
       url: item.url,
+      // width/height는 조건부가 아니라 항상 내보낸다. 키가 없으면 초안 작성 모델이
+      // "정보 없음"으로 보고 추측하지만, null은 "모른다는 것이 확인됨"이라 추측을 막는다.
+      width: item.width ?? null,
+      height: item.height ?? null,
       originalBytes: item.originalBytes,
       webpBytes: item.webpBytes,
+      ...(item.dimensionsError ? { dimensionsError: item.dimensionsError } : {}),
       ...(item.oversize ? { oversize: true } : {}),
       ...(item.fallbackUsed ? {
         fallbackUsed: true,
@@ -165,7 +206,22 @@ async function main() {
       ...(item.error ? { error: item.error } : {}),
     })),
     summary,
-  }, null, 2));
+  };
+
+  const json = JSON.stringify(result, null, 2);
+  console.log(json);
+
+  if (outputPath) {
+    try {
+      fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+      fs.writeFileSync(outputPath, json, 'utf-8');
+      console.error(`Upload result saved to ${outputPath}`);
+    } catch (err) {
+      console.error(`Error: 업로드는 끝났으나 ${outputPath} 쓰기 실패: ${err.message}`);
+      console.error('결과 JSON은 stdout에만 있습니다 — 호출자는 exit 2를 확인할 것.');
+      process.exit(2);
+    }
+  }
 
   if (summary.failed > 0) process.exit(1);
   if (summary.degraded > 0) process.exit(4);

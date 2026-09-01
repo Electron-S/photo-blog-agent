@@ -53,7 +53,8 @@ node scripts/extract-exif.js <이미지경로...> --output tmp/metadata-2026-05-
 node scripts/analyze-photos.js <이미지경로...> --output tmp/photo-analysis-2026-05-05.json
 
 # 2단계: 이미지 처리 & GitHub Pages 업로드 (--metadata로 1단계 결과 연결)
-node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-05-05.json [--slug 슬러그] [--max-size-kb N]
+node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-05-05.json \
+  [--slug 슬러그] [--max-size-kb N] [--output tmp/upload-<슬러그>.json] [--local-only]
 ```
 
 ### 라이브러리 (`lib/`)
@@ -100,8 +101,9 @@ node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-
 |---|---|---|---|---|---|---|---|---|
 | `extract-exif.js` | 성공 | 일반 실패 | `--output` 쓰기 실패 | 지원 이미지 없음 | — | — | — | — |
 | `analyze-photos.js` | 성공 | 인자 오류 | `--output` 쓰기 실패 | 지원 이미지 없음 | — | — | — | — |
-| `upload-images.js` | 전부 정상 | 업로드/검증 실패 | — | — | fallback/oversize (정책 점검) | 날짜 출처 미상 — 업로드 거부 (멱등성 보호) | — | — |
-| `publish-post.js` | 성공 | 일반 실패 | — | — | — | 슬러그 미지정 거부 | 슬러그 검증 실패 | — |
+| `upload-images.js` | 전부 정상 | 업로드/검증 실패 | `--output` 쓰기 실패 | — | 품질 저하: fallback/oversize/치수 결손 | 날짜 출처 미상 — 업로드 거부 (멱등성 보호) | — | — |
+| `publish-post.js` | 성공 | 일반 실패 | — | — | — | — | 슬러그 미지정 거부 | 슬러그 검증 실패 |
+| `delete-post.js` | 성공 | 일반 실패 | — | — | — | — | — | 삭제 후 옛 URL이 살아 있음 |
 
 ## 블로그 글 작성 워크플로우
 

@@ -63,7 +63,7 @@ node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --metada
 
 종료 코드:
 - `extract-exif.js`: 0=성공, 1=일반 실패, 2=`--output` 쓰기 실패(stdout 미출력), 3=지원 이미지 없음
-- `upload-images.js`: 0=전부 정상, 1=업로드/검증 실패, 4=fallback/oversize 품질 저하, 5=날짜 출처 미상으로 업로드 거부 (`--metadata` 또는 `--date` 명시 필요, 멱등성 보호)
+- `upload-images.js`: 0=전부 정상, 1=업로드/검증 실패, 2=`--output` 쓰기 실패, 4=품질 저하(fallback/oversize/치수 결손), 5=날짜 출처 미상으로 업로드 거부 (`--metadata` 또는 `--date` 명시 필요, 멱등성 보호)
 - `publish-post.js`: 0=성공, 1=일반 실패, 6=`--slug`/`--slug-from-date` 미지정 거부, 7=슬러그 검증 실패 (LIVE 영구 고정 URL과 mismatch 또는 발행 후 사후 검증 mismatch — 자동 suffix `-N`은 통과)
 
 ## 블로그 글 작성 워크플로우
@@ -94,9 +94,9 @@ node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --metada
 
 - 모든 이미지는 WebP만 사용. JPEG 폴백은 제공하지 않는다.
 - `<picture>/<source>` 래퍼 없이 `<img src="...webp">` 직접 사용.
-- `<figure>`에 `style="margin:1.5em 0;text-align:center;"` 적용.
+- `<figure>`에 `style="margin:1.5em 0;text-align:center;position:relative;"` 적용. `position:relative`는 이미지 보호 오버레이를 위해 필요하다.
 - `<img>`에 `width`, `height`, `loading="lazy"`, `style="max-width:100%;height:auto;"` 필수.
-- `width`/`height`는 실제 이미지 치수와 일치해야 함 (세로 사진: 768x1024, 가로: 1024x768 등).
+- `width`/`height`는 **업로드 결과 JSON의 `images[].width`/`height`를 그대로 옮긴다** (세로 사진: 768x1024, 가로: 1024x768 등). `null`이면 파이프라인이 치수를 확인하지 못한 것이므로 **추측해서 채우지 말고** 사용자에게 보고한다 — 틀린 치수는 CLS를 유발한다.
 - 워터마크가 이미지 우측 하단에 자동 삽입됨.
 
 ## 사용 가능한 npm scripts
