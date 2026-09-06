@@ -103,6 +103,48 @@ test('analyze-photos: --output 없으면 exit 1', () => {
   assert.equal(r.status, 1);
 });
 
+test('analyze-photos: 이미 채워진 파일은 재분석하지 않는다 (모델 간 핸드오프)', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-ap-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const img = path.join(dir, 'x.jpg');
+  fs.writeFileSync(img, 'not really a jpg', 'utf8'); // 골격 생성에는 디코드가 필요 없다
+  const out = path.join(dir, 'a.json');
+
+  assert.equal(run('analyze-photos.js', [img, '--output', out]).status, 0);
+
+  // 비전 모델이 채운 상태를 흉내낸다
+  const filled = JSON.parse(fs.readFileSync(out, 'utf8'));
+  filled.analyzed_by_model_capability = 'vision';
+  filled.photos[0].scene_description = '골목 끝 간판';
+  fs.writeFileSync(out, JSON.stringify(filled), 'utf8');
+
+  const again = run('analyze-photos.js', [img, '--output', out]);
+  assert.equal(again.status, 0);
+  assert.match(again.stderr, /Skipping/);
+  assert.equal(JSON.parse(fs.readFileSync(out, 'utf8')).photos[0].scene_description, '골목 끝 간판',
+    '채워진 분석 결과가 덮어써짐');
+});
+
+test('analyze-photos: 손상된 파일은 백업 후 덮어쓴다 (조용한 소실 금지)', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-ap2-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const img = path.join(dir, 'x.jpg');
+  fs.writeFileSync(img, 'x', 'utf8');
+  const out = path.join(dir, 'c.json');
+  // 비전 분석 결과가 들어 있다가 부분 쓰기로 깨진 상황
+  fs.writeFileSync(out, '{"analyzed_by_model_capability":"vision","photos":[{"scene_description":"소중한 결과"', 'utf8');
+
+  const r = run('analyze-photos.js', [img, '--output', out]);
+  assert.equal(r.status, 0);
+  assert.match(r.stderr, /백업/);
+
+  const backups = fs.readdirSync(dir).filter((f) => f.includes('.corrupt-'));
+  assert.equal(backups.length, 1, '백업이 만들어지지 않음');
+  assert.match(fs.readFileSync(path.join(dir, backups[0]), 'utf8'), /소중한 결과/);
+  // 새 골격은 정상 생성
+  assert.equal(JSON.parse(fs.readFileSync(out, 'utf8')).analyzed_by_model_capability, null);
+});
+
 // --- 네이버 (브라우저·계정 불필요한 경로만) ---
 
 test('naver:draft — 실물 확인 게이트 전에는 exit 12', () => {

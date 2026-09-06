@@ -64,7 +64,20 @@ if (fs.existsSync(outputPath)) {
       process.exit(0);
     }
   } catch (err) {
-    console.error(`Warning: existing file ${outputPath} exists but could not be parsed (${err.message}). Proceeding to overwrite.`);
+    // 이 파일에는 비전 모델이 채운 scene_description 등이 들어 있을 수 있다.
+    // 그냥 덮어쓰면 그 작업이 조용히 사라진다 (lib/session-state.js는 같은 상황에서
+    // 원본을 보존하고 exit 9로 멈춘다). 여기서는 골격이 재생성 가능하므로 워크플로우를
+    // 막지는 않되, 원본을 백업해 두고 그 사실을 알린다.
+    let backup = null;
+    try {
+      backup = `${outputPath}.corrupt-${Date.now()}`;
+      fs.copyFileSync(outputPath, backup);
+    } catch (copyErr) {
+      console.error(`Error: 손상된 ${outputPath}를 백업하지 못했습니다 (${copyErr.message}). 덮어쓰지 않고 중단합니다.`);
+      process.exit(2);
+    }
+    console.error(`Warning: existing file ${outputPath} exists but could not be parsed (${err.message}).`);
+    console.error(`  원본을 ${backup} 로 백업하고 새 골격으로 덮어씁니다. 비전 분석 결과가 들어 있었다면 백업을 확인하세요.`);
   }
 }
 
