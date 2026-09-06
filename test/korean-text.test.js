@@ -149,9 +149,38 @@ test('이모지 블록 화살표(➡ ⬅ ⬆ ⬇ ➔)는 맨 형태도 이모지
   }
 });
 
-test('splitSentences — <br>이 만든 줄바꿈은 문장 경계다', () => {
-  assert.equal(countSentences('첫 문장입니다\n둘째 문장입니다'), 2);
-  assert.equal(countSentences('가.\n나.\n다.'), 3);
+test('splitSentences — <br>만 문장 경계이고 소스 줄바꿈은 아니다', () => {
+  const { parseHtml, textOf, BR_SENTINEL } = require('../lib/html-parse');
+
+  // <br>: 경계 O
+  assert.equal(countSentences(textOf(parseHtml('<p>첫 문장입니다<br>둘째 문장입니다</p>').root)), 2);
+  assert.equal(countSentences(`가${BR_SENTINEL}나${BR_SENTINEL}다`), 3);
+
+  // HTML 소스 줄바꿈: 경계 X. 같은 한 문장이 소스에서 접혀 있다는 이유만으로
+  // 2문장이 되면 text-after-figure(error)가 조용히 통과한다.
+  assert.equal(countSentences(textOf(parseHtml('<p>사진 속 간판이\n인상적이었다</p>').root)), 1);
+  assert.equal(countSentences('첫 문장입니다\n둘째 문장입니다'), 1);
+
+  // 센티널이 글자수를 오염시키지 않는다
+  assert.equal(
+    countChars(textOf(parseHtml('<p>가나다<br>라마바</p>').root)),
+    countChars('가나다 라마바'),
+  );
+});
+
+test('findEmoji — VS15(U+FE0E) 화살표는 이모지가 아니다', () => {
+  // VS15는 작성자가 명시적으로 "이모지 아님"을 요청한 텍스트 표현 선택자다.
+  // 맨 화살표(warn)보다 엄한 error가 되면 안 된다.
+  const VS15 = '\uFE0E';
+  const VS16 = '\uFE0F';
+  for (let code = 0x2190; code <= 0x21FF; code += 1) {
+    const bare = String.fromCodePoint(code);
+    assert.deepEqual(findEmoji(bare + VS15), [], `U+${code.toString(16)}+VS15가 이모지로 잡힘`);
+    assert.equal(findDecorativeArrows(bare + VS15).length, 1, `U+${code.toString(16)}+VS15가 화살표로 안 잡힘`);
+    // VS16은 반대로 이모지 전담
+    assert.equal(findEmoji(bare + VS16).length, 1);
+    assert.deepEqual(findDecorativeArrows(bare + VS16), []);
+  }
 });
 
 test('splitSentences — …도 문장 끝이다 (…만 빼면 과소 계산)', () => {

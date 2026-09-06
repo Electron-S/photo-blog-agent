@@ -110,9 +110,17 @@ test('textOf — skipTags로 figcaption 제외', () => {
   assert.ok(!textOf(root).includes('ALT'));
 });
 
-test('textOf — <br>은 줄바꿈이 된다', () => {
-  const { root } = parseHtml('<p>첫 문장<br>둘째 문장</p>');
-  assert.equal(textOf(root), '첫 문장\n둘째 문장');
+test('textOf — <br>만 센티널이 되고 소스 줄바꿈은 그대로다', () => {
+  const { BR_SENTINEL } = require('../lib/html-parse');
+
+  // <br>은 전용 센티널로 나온다.
+  assert.equal(textOf(parseHtml('<p>첫 문장<br>둘째 문장</p>').root), `첫 문장${BR_SENTINEL}둘째 문장`);
+
+  // HTML 소스의 줄바꿈은 텍스트 그대로다. 둘을 구분하지 않으면 초안이 소스에서
+  // 접혀 있다는 이유만으로 문장 수가 부풀려져 text-after-figure(error)가
+  // 조용히 통과한다.
+  assert.equal(textOf(parseHtml('<p>첫 문장\n둘째 문장</p>').root), '첫 문장\n둘째 문장');
+  assert.ok(!textOf(parseHtml('<p>a\nb</p>').root).includes(BR_SENTINEL));
 });
 
 test('nextElementSibling — 공백은 건너뛰고 실제 텍스트는 형제를 끊는다', () => {
