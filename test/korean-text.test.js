@@ -124,19 +124,42 @@ test('findEmoji — 화살표는 이모지가 아니다 (decorative-arrow가 담
   }
 });
 
-test('두 규칙의 문자 집합은 겹치지 않는다 — 맨 형태와 VS16 형태 모두 (불변식)', () => {
-  // 1차 수정은 `[...g].length === 1` 가드를 써서 VS16이 붙은 형태를 놓쳤다.
-  // ↔️ 가 no-emoji(error)와 decorative-arrow(warn)에 동시에 걸렸고, 사용자에게는
-  // "↔ 는 통과하는데 ↔️ 는 막히는" (대부분 폰트에서 구별 안 되는) 규칙이 됐다.
+test('화살표: 두 규칙이 모든 조합에서 배타적이고 빠짐이 없다 (구조적 불변식)', () => {
+  // 이 불변식은 세 라운드 연속으로 깨졌다 — VS16 → VS15 → keycap/ZWJ/skin-tone.
+  // 매번 "한 케이스"만 패치했기 때문이다. 이제 두 함수가 같은 단위(grapheme)에
+  // 같은 술어(ARROW_GRAPHEME_RE)를 적용하므로 배타성이 정의상 보장된다.
+  // 테스트도 케이스가 아니라 조합 전수로 확인한다.
+  const ZWJ = '\u200D';
+  const VS15 = '\uFE0E';
   const VS16 = '\uFE0F';
-  for (let cp = 0x2190; cp <= 0x21FF; cp += 1) {
-    const bare = String.fromCodePoint(cp);
-    assert.deepEqual(findEmoji(bare), [], `U+${cp.toString(16)} 맨 형태가 이모지로 잡힘`);
-    assert.equal(findDecorativeArrows(bare).length, 1, `U+${cp.toString(16)} 맨 형태가 화살표로 안 잡힘`);
+  const KEYCAP = '\u20E3';
+  const SKIN = '\u{1F3FB}';
+  const HEART = '\u2764';
 
-    const vs = bare + VS16;
-    assert.equal(findEmoji(vs).length, 1, `U+${cp.toString(16)}+VS16이 이모지로 안 잡힘`);
-    assert.deepEqual(findDecorativeArrows(vs), [], `U+${cp.toString(16)}+VS16이 화살표로도 잡힘`);
+  // [접미사, 화살표 규칙이 담당해야 하는가]
+  const suffixes = [
+    ['', true],              // 맨 화살표 = 타이포그래피 문자
+    [VS15, true],            // 텍스트 표현 선택자 = 명시적으로 "이모지 아님"
+    [VS16, false],           // 이모지 표현 선택자
+    [KEYCAP, false],
+    [ZWJ + HEART, false],
+    [SKIN, false],
+    [VS16 + KEYCAP, false],
+    [VS15 + KEYCAP, false],
+  ];
+
+  for (let code = 0x2190; code <= 0x21FF; code += 1) {
+    const bare = String.fromCodePoint(code);
+    for (const [suffix, isArrowRule] of suffixes) {
+      const s = bare + suffix;
+      const label = `U+${code.toString(16)} + ${JSON.stringify(suffix)}`;
+      const emoji = findEmoji(s).length > 0;
+      const arrow = findDecorativeArrows(s).length > 0;
+
+      assert.ok(!(emoji && arrow), `${label}: 두 규칙에 동시 매칭`);
+      assert.ok(emoji || arrow, `${label}: 어느 규칙도 담당하지 않음`);
+      assert.equal(arrow, isArrowRule, `${label}: 담당 규칙이 기대와 다름`);
+    }
   }
 });
 
@@ -166,21 +189,6 @@ test('splitSentences — <br>만 문장 경계이고 소스 줄바꿈은 아니�
     countChars(textOf(parseHtml('<p>가나다<br>라마바</p>').root)),
     countChars('가나다 라마바'),
   );
-});
-
-test('findEmoji — VS15(U+FE0E) 화살표는 이모지가 아니다', () => {
-  // VS15는 작성자가 명시적으로 "이모지 아님"을 요청한 텍스트 표현 선택자다.
-  // 맨 화살표(warn)보다 엄한 error가 되면 안 된다.
-  const VS15 = '\uFE0E';
-  const VS16 = '\uFE0F';
-  for (let code = 0x2190; code <= 0x21FF; code += 1) {
-    const bare = String.fromCodePoint(code);
-    assert.deepEqual(findEmoji(bare + VS15), [], `U+${code.toString(16)}+VS15가 이모지로 잡힘`);
-    assert.equal(findDecorativeArrows(bare + VS15).length, 1, `U+${code.toString(16)}+VS15가 화살표로 안 잡힘`);
-    // VS16은 반대로 이모지 전담
-    assert.equal(findEmoji(bare + VS16).length, 1);
-    assert.deepEqual(findDecorativeArrows(bare + VS16), []);
-  }
 });
 
 test('splitSentences — …도 문장 끝이다 (…만 빼면 과소 계산)', () => {
