@@ -94,6 +94,18 @@ test('중첩 figure', () => {
   assert.equal(findAll(root, 'figure').length, 2);
 });
 
+test('원본의 리터럴 NUL은 제거된다 (센티널과 구별 불가하므로)', () => {
+  const { BR_SENTINEL } = require('../lib/html-parse');
+  const NUL = String.fromCharCode(0);
+  // 남겨두면 <br>이 만든 센티널과 구별되지 않아 가짜 문장 경계가 되고,
+  // text-after-figure(error)가 조용히 통과한다.
+  const { root, source } = parseHtml(`<p>가${NUL}나</p>`);
+  assert.ok(!source.includes(BR_SENTINEL));
+  assert.equal(textOf(root), '가나');
+  // <br>은 여전히 센티널이 된다
+  assert.equal(textOf(parseHtml('<p>가<br>나</p>').root), `가${BR_SENTINEL}나`);
+});
+
 test('CRLF와 BOM 정규화', () => {
   const { root, errors, source } = parseHtml('﻿<p>a</p>\r\n<p>b</p>');
   assert.deepEqual(errors, []);
