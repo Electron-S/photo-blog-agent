@@ -356,3 +356,25 @@ test('실제 초안에는 구조 오류가 없다', () => {
     assert.ok(!r.errors.some((e) => e.rule === 'html-structure'), `${file}에 구조 오류`);
   }
 });
+
+test('bodyChars는 script/style 내용을 세지 않는다', () => {
+  // CLAUDE.md가 권장하는 이미지 보호 CSS/JS 블록이 분량으로 세이면
+  // "캡션만 길게 써서 1,800자 채우기"와 똑같은 우회로가 열린다.
+  const plain = '<p>가나다라마바사아자차카타파하.</p>';
+  const withStyle = `${plain}<style>.se-x{position:absolute;top:0;left:0;width:100%;height:100%}</style>`;
+  const withScript = `${plain}<script>document.addEventListener('contextmenu', function (e) { e.preventDefault(); });</script>`;
+  const base = lintDraftHtml(plain).stats.bodyChars;
+  assert.equal(lintDraftHtml(withStyle).stats.bodyChars, base, 'style 내용이 세어짐');
+  assert.equal(lintDraftHtml(withScript).stats.bodyChars, base, 'script 내용이 세어짐');
+});
+
+test('tailKeyOf — Windows 경로 구분자도 나눈다 (--local-only 매칭)', () => {
+  // webpPath는 path.join으로 만들어져 Windows에서 역슬래시가 된다.
+  // `/`로만 나누면 전량 미매칭 → upload-result-no-match(error)로 차단됐다.
+  const uploadResult = {
+    images: [{ index: 1, webpUrl: null, url: null, webpPath: 'C:\\dev\\tmp\\assets\\x\\photo-01.webp', width: 1024, height: 768 }],
+  };
+  const r = lintDraftHtml(doc(`${figure(1)}<p>문장. 또 문장.</p>${filler(60)}<h3>가</h3>${filler(20)}<h3>나</h3>${filler(20)}<h3>다</h3>${filler(20)}`), { uploadResult });
+  assert.equal(r.stats.dimensionCheck, 'ok', JSON.stringify(rulesOf(r)));
+  assert.ok(!r.errors.some((e) => e.rule === 'upload-result-no-match'));
+});

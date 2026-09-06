@@ -70,15 +70,14 @@ test('extractImageUrls — 이미지 없음', () => {
   assert.deepEqual(extractImageUrls(''), []);
 });
 
-test('mapWithConcurrency — limit이 1 미만이면 던진다 (조용한 전부 통과 방지)', () => {
+test('mapWithConcurrency — limit이 1 미만이면 던진다 (조용한 전부 통과 방지)', async () => {
   const { mapWithConcurrency } = require('../lib/verify-images');
   // limit<1이면 워커가 0개라 콜백을 한 번도 부르지 않고 [null,...]을 반환했다.
   // 이 함수는 검증 유틸리티라 그 상태가 "전부 통과"로 읽힌다.
-  for (const bad of [0, -1, 1.5, '4', null, undefined, NaN]) {
-    assert.rejects(
-      () => mapWithConcurrency([1, 2, 3], bad, async (x) => x),
-      TypeError,
-      `limit=${JSON.stringify(bad)} 를 통과시킴`,
-    );
-  }
+  // await하지 않으면 어느 값이 통과했는지 리포트에 안 나온다.
+  await Promise.all([0, -1, 1.5, '4', null, undefined, NaN].map((bad) => assert.rejects(
+    () => mapWithConcurrency([1, 2, 3], bad, async (x) => x),
+    TypeError,
+    `limit=${JSON.stringify(bad)} 를 통과시킴`,
+  )));
 });

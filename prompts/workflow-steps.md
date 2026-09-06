@@ -66,7 +66,8 @@ exit 코드: 2(`--output` 쓰기 실패), 3(지원 이미지 없음) → EXIF �
 ```bash
 node /home/cyyoo/develop/photo-blog-agent/scripts/upload-images.js <사진들> \
   --metadata /home/cyyoo/develop/photo-blog-agent/tmp/metadata-<오늘날짜>.json \
-  --slug <영문-슬러그>
+  --slug <영문-슬러그> \
+  --output /home/cyyoo/develop/photo-blog-agent/tmp/upload-<슬러그>.json
 ```
 
 - slug는 영문/숫자/하이픈만. 장소·테마를 짧게 (예: `seokchon-lake-spring`, `omurice-jamsil`).

@@ -122,7 +122,8 @@ node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --metada
 
 명령·플래그·종료 코드의 정본은 [README.md](README.md#스크립트-scripts)입니다.
 위 "사진 파이프라인"과 "블로그 글 작성 워크플로우" 절에 이 프로젝트에서 지켜야 할
-규칙과 그 이유를 적어 두었고, 전체 인자 목록은 각 스크립트의 `--help`(인자 없이 실행)로 확인합니다.
+규칙과 그 이유를 적어 두었고, 전체 인자 목록은 각 스크립트를 **인자 없이 실행**하면 나오는
+usage로 확인합니다 (`--help` 플래그는 구현돼 있지 않습니다 — 알 수 없는 플래그로 거부됩니다).
 
 ### URL 슬러그 — 절대 규칙
 
@@ -146,7 +147,8 @@ Blogger는 **첫 발행 시점에 URL을 영구 고정**한다. LIVE 된 글의 
 | `prompts/visit-research.md` | 방문지 리서치 프롬프트 |
 | `prompts/workflow-steps.md` | **워크플로우 정본 (Step 1~7).** `/blog` 커맨드와 `blog-agent`가 공유한다 |
 
-블로그 글을 작성하거나 수정할 때 반드시 이 세 파일을 읽고 규칙을 따르세요.
+블로그 글을 작성하거나 수정할 때 `style-guide.md` · `system-rules.md` · `blog-draft.md`를
+반드시 읽고 규칙을 따르세요. 워크플로우 진행은 `workflow-steps.md`가 정본입니다.
 
 ## 영속화 아티팩트 (모델 간 핸드오프)
 
@@ -169,7 +171,7 @@ Blogger는 **첫 발행 시점에 URL을 영구 고정**한다. LIVE 된 글의 
 
 - GitHub Pages에 업로드된 이미지는 공개 접근 가능하므로 워터마크와 경로 난독화로 보호한다.
 - 워터마크: `WATERMARK_TEXT` 환경변수로 텍스트 지정 (기본값: `electronian-review.blogspot.com`), 이미지 우측 하단에 반투명으로 합성.
-- 경로 난독화: `posts/{date}-{sha256hash}/{photo-NN.webp}` 형식으로 URL 추측 방지.
+- 경로 난독화: `posts/{date}-{hash12}/{photo-NN.webp}` — sha256의 **앞 12자리 hex**입니다 (`lib/asset-paths.js`).
 - 블로그 HTML: CSS/JS로 우클릭 방지, 드래그 방지 적용 (`blogger-image-protection.html` 참고).
 
 ## 네이버 블로그 발행 (Playwright 자동화) — 실험적, 현재 미검증
@@ -189,7 +191,8 @@ npm run naver:login
 ```
 - 브라우저가 자동으로 열려 네이버 로그인 페이지가 표시됩니다.
 - 직접 ID/PW로 로그인하세요.
-- 로그인 후 세션이 `.naver-session.json`에 저장됩니다 (gitignore 대상).
+- 로그인 후 세션은 chromium 영속 프로필 `.naver-profile/`에 유지됩니다 (gitignore 대상).
+- `.naver-session.json`도 생기지만 **감사/디버그용 스냅샷**일 뿐 로그인 판정에는 쓰이지 않습니다.
 
 ### 초안 생성
 ```bash
@@ -197,10 +200,17 @@ npm run naver:draft -- --html ./draft.html --title "제목" [--category "카테�
 ```
 
 ### 발행
-네이버 블로그 에디터에서 직접 글을 최종 확인한 후:
+
+**현재 `naver:publish`는 미구현입니다** (임시저장 목록 UI를 실물로 확인하지 못했습니다).
+`--draft-title` 없이 실행하면 exit 1, 지정해도 exit 12로 끝납니다.
+
+발행은 작성과 한 프로세스로 수행합니다:
+
 ```bash
-npm run naver:publish
+npm run naver:draft -- --html ./draft.html --title "제목" --publish --visibility private
 ```
+
+`--visibility` 기본값은 `private`이고, `public`은 `NAVER_ALLOW_PUBLIC=1`을 함께 요구합니다 (exit 18).
 
 **중요한 차이점** (Blogger vs 네이버):
 - **이미지 호스팅**: Blogger는 GitHub Pages (외부 URL) 사용, 네이버는 에디터에서 직접 로컬 파일 업로드.
@@ -216,7 +226,9 @@ npm run naver:publish
 - `BLOGGER_BLOG_ID`, `BLOGGER_CLIENT_ID`, `BLOGGER_CLIENT_SECRET`, `BLOGGER_REFRESH_TOKEN` — Blogger API
 
 **네이버:**
-- 환경변수 불필요. `.naver-session.json` (gitignore)에 세션 저장.
+- `NAVER_BLOG_ID` (필수) — `blog.naver.com/{여기}`. 에디터 URL·로그인 계정 검증·발행 후 URL 대조에 씁니다.
+- `NAVER_PROFILE_DIR` (선택, 기본 `.naver-profile`) — 세션이 유지되는 chromium 프로필 디렉터리.
+- `NAVER_ALLOW_PUBLIC` (안전장치) — 공개 발행에는 `1`이 필요합니다. `--visibility public`만으로는 exit 18로 거부됩니다.
 
 **이미지 호스팅:**
 - `GITHUB_OWNER`, `GITHUB_ASSET_REPO`, `GITHUB_ASSET_BRANCH`, `GITHUB_ASSET_BASE_URL` — GitHub Pages (Blogger 경로)

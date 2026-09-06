@@ -124,11 +124,39 @@ test('findEmoji — 화살표는 이모지가 아니다 (decorative-arrow가 담
   }
 });
 
-test('두 규칙의 문자 집합은 겹치지 않는다 (불변식)', () => {
+test('두 규칙의 문자 집합은 겹치지 않는다 — 맨 형태와 VS16 형태 모두 (불변식)', () => {
+  // 1차 수정은 `[...g].length === 1` 가드를 써서 VS16이 붙은 형태를 놓쳤다.
+  // ↔️ 가 no-emoji(error)와 decorative-arrow(warn)에 동시에 걸렸고, 사용자에게는
+  // "↔ 는 통과하는데 ↔️ 는 막히는" (대부분 폰트에서 구별 안 되는) 규칙이 됐다.
+  const VS16 = '\uFE0F';
   for (let cp = 0x2190; cp <= 0x21FF; cp += 1) {
-    const c = String.fromCodePoint(cp);
-    const isEmoji = findEmoji(c).length > 0;
-    const isArrow = findDecorativeArrows(c).length > 0;
-    assert.ok(!(isEmoji && isArrow), `U+${cp.toString(16)} 가 두 규칙에 동시 매칭`);
+    const bare = String.fromCodePoint(cp);
+    assert.deepEqual(findEmoji(bare), [], `U+${cp.toString(16)} 맨 형태가 이모지로 잡힘`);
+    assert.equal(findDecorativeArrows(bare).length, 1, `U+${cp.toString(16)} 맨 형태가 화살표로 안 잡힘`);
+
+    const vs = bare + VS16;
+    assert.equal(findEmoji(vs).length, 1, `U+${cp.toString(16)}+VS16이 이모지로 안 잡힘`);
+    assert.deepEqual(findDecorativeArrows(vs), [], `U+${cp.toString(16)}+VS16이 화살표로도 잡힘`);
   }
+});
+
+test('이모지 블록 화살표(➡ ⬅ ⬆ ⬇ ➔)는 맨 형태도 이모지', () => {
+  // U+2190 블록의 타이포그래피 화살표와 달리 RGI 이모지 기저 문자다.
+  // style-guide가 금지하는 "장식용"에 가장 가까우므로 error로 둔다.
+  for (const c of ['\u27A1', '\u2B05', '\u2B06', '\u2B07', '\u2794']) {
+    assert.equal(findEmoji(c).length, 1, `U+${c.codePointAt(0).toString(16)} 가 이모지로 안 잡힘`);
+    assert.deepEqual(findDecorativeArrows(c), [], `U+${c.codePointAt(0).toString(16)} 가 화살표로도 잡힘`);
+  }
+});
+
+test('splitSentences — <br>이 만든 줄바꿈은 문장 경계다', () => {
+  assert.equal(countSentences('첫 문장입니다\n둘째 문장입니다'), 2);
+  assert.equal(countSentences('가.\n나.\n다.'), 3);
+});
+
+test('splitSentences — …도 문장 끝이다 (…만 빼면 과소 계산)', () => {
+  assert.equal(countSentences('망설였다… 그래도 갔다.'), 2);
+  assert.equal(countSentences('망설였다&hellip; 그래도 갔다.'), 2);
+  // 중간 줄임표는 여전히 경계가 아니다
+  assert.equal(countSentences('a…b 하나뿐'), 1);
 });

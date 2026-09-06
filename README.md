@@ -36,15 +36,18 @@
 | `npm run assets:extract` | EXIF 메타데이터 추출 |
 | `npm run assets:analyze` | 사진 시각 분석 JSON 골격 생성 |
 | `npm run assets:upload` | 이미지 압축 & GitHub Pages 업로드 |
-| `npm run lint:draft` | 초안 HTML 규칙 검증 (`--upload-result`로 치수 대조, exit 8=위반) |
+| `npm run lint:draft` | 초안 HTML 규칙 검증 (`--upload-result`, `--format text\|json`, `--strict`; exit 8=위반) |
 | `npm test` | 유닛 테스트 |
+| `npm run session:state` | 세션 진행 상태 (`init`/`update`/`read`/`list`) |
+| `npm run naver:doctor` | 네이버 자동화 프리플라이트 |
+| `npm run naver:inspect` | 네이버 실물 DOM 셀렉터 확인 |
 | `npm run assets:test` | GitHub Pages 업로드 테스트 |
 | `npm run blogger:auth` | Blogger OAuth 토큰 획득 |
 | `npm run blogger:test` | Blogger API 연결 테스트 |
-| `npm run blogger:draft` | Blogger 초안 생성 (`--title`, `--content`, `--labels`) |
-| `npm run blogger:update` | Blogger 글 수정 (`--post-id`, `--title`, `--content`, `--labels`) |
+| `npm run blogger:draft` | Blogger 초안 생성 (`--title`, `--content`, `--labels`, `--upload-result`) |
+| `npm run blogger:update` | Blogger 글 수정 (`--post-id`, `--title`, `--content`, `--labels`, `--upload-result`) |
 | `npm run blogger:publish` | Blogger 글 발행 (`--post-id`, `--slug` 또는 `--slug-from-date`) |
-| `npm run blogger:delete` | Blogger 글 삭제 (`--post-id`, `--draft-only`) |
+| `npm run blogger:delete` | Blogger 글 삭제 (`--post-id`, `--draft-only`, `--keep-trash`) |
 
 CLI 직접 호출 (1단계의 출력을 2단계 `--metadata`로 연결해야 EXIF 날짜가 일관되게 사용됨):
 
@@ -67,7 +70,12 @@ node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-
 | `blogger.js` | Blogger API 클라이언트 (초안 생성, 수정, 발행, 삭제) |
 | `github-assets.js` | 이미지 압축(sharp) & GitHub Pages 업로드 |
 | `asset-paths.js` | 슬러그·경로 해시 (의존성 0, sharp를 끌고 오지 않음) |
-| `naver-blog.js` | 네이버 블로그 Playwright 자동화 (**실험적 — 미검증**) |
+| `naver-errors.js` | 네이버 전용 오류·exit 코드 (10~19) |
+| `naver-selectors.js` | 셀렉터 레지스트리 (**추정값 — `VERIFIED_AT` 확인 전**) |
+| `naver-dom.js` | 에디터 DOM 헬퍼 (못 찾으면 덤프 후 실패, silent skip 없음) |
+| `naver-debug.js` | 실패 시 스크린샷·HTML·프레임 트리 덤프 |
+| `naver-browser.js` | 브라우저 기동·영속 프로필·세션 검증 |
+| `naver-content.js` | 초안 HTML → 네이버 블록 변환 |
 | `cli-args.js` | CLI 인자 파싱 |
 | `slug.js` | Blogger URL 슬러그 검증 |
 | `exif.js` | EXIF 값 정규화 |
@@ -134,7 +142,7 @@ node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-
 | 11 | 세션 없음·만료·다른 계정 | `npm run naver:login` |
 | 12 | 셀렉터 미발견 (DOM 변경 의심) | `tmp/naver-debug/` 덤프 확인 → `npm run naver:inspect` |
 | 13 · 14 · 15 | 카테고리 · 태그 · 발행 후 검증 | **예약** — 발행 레이어 구현 후 사용 |
-| 16 | 이미지 로컬 파일 없음·업로드 미완료 | `tmp/assets/` 확인, `upload-images.js` 재실행 |
+| 16 | 이미지 로컬 파일을 찾지 못함 | `tmp/assets/` 확인, `upload-images.js`를 `--output`/`--local-only`와 재실행 |
 | 17 | headed 실행 불가 (디스플레이 없음) | WSLg / X 서버 확인 |
 | 18 | 공개 발행 안전장치 거부 | `NAVER_ALLOW_PUBLIC=1` + `--visibility public` |
 | 19 | 초안 HTML → 블록 변환 실패 | 허용 밖 태그·구조 오류를 초안에서 제거 |
