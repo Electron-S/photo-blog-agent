@@ -160,3 +160,13 @@ test('splitSentences — …도 문장 끝이다 (…만 빼면 과소 계산)',
   // 중간 줄임표는 여전히 경계가 아니다
   assert.equal(countSentences('a…b 하나뿐'), 1);
 });
+
+test('splitSentences — 엔티티를 두 번 디코드하지 않는다', () => {
+  // splitSentences가 자체 decodeEntities를 호출하고 splitOneLine의
+  // normalizeWhitespace가 또 호출하면, 화면에 `&lt;`로 보여야 하는
+  // `&amp;lt;`가 `<`가 된다.
+  assert.deepEqual(splitSentences('a &amp;lt; b 하나.'), ['a &lt; b 하나.']);
+  assert.deepEqual(splitSentences('a &amp;amp; b 하나.'), ['a &amp; b 하나.']);
+  // 한 번 디코드는 정상
+  assert.deepEqual(splitSentences('a &amp; b 하나.'), ['a & b 하나.']);
+});
