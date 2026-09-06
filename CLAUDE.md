@@ -131,8 +131,8 @@ Blogger는 **첫 발행 시점에 URL을 영구 고정**한다. LIVE 된 글의 
 - **발행 전(DRAFT) 단계**에서 슬러그를 반드시 `YYYY-MM-DD` 형태로 결정해 둘 것. `publish-post.js`의 슬러그 트릭은 DRAFT → LIVE 전환 순간에만 효과가 있다.
 - 이미 LIVE 된 글의 URL을 바꾸려고 **글을 삭제하고 새로 발행하지 말 것**. Google index에 옛 URL이 남아 새 URL로의 redirect chain이 만들어지고, 이게 Search Console의 "리디렉션 오류"로 분류되어 색인이 막힌다 (실제로 이 프로젝트가 한 번 겪었던 사고).
 - 부득이 URL을 바꿔야 한다면:
-  1. 옛 글을 `delete-post.js`로 삭제. **단, Blogger v3 API의 `useTrash` 기본값은 문서에 명시되어 있지 않고 현재 `delete-post.js`는 옵션 미전달**이므로, 삭제 후 Blogger 에디터의 휴지통이 비어 있는지 (즉 영구 삭제되었는지) **수동 확인 필수**. 휴지통에 남아 있으면 비우기까지 진행해야 옛 URL이 응답을 멈춘다.
-  2. 옛 URL을 직접 열어서 404가 반환되는지 확인. 200/3xx가 나오면 색인에서 자연 제거되지 않으므로 다시 휴지통/영구 삭제 단계로 돌아갈 것.
+  1. 옛 글을 `delete-post.js`로 삭제. `useTrash=false`(영구 삭제)를 명시적으로 넘기며, 삭제 후 옛 URL에 HEAD를 날려 404인지 스크립트가 직접 확인한다. 살아 있으면 **exit 7**로 중단하고 휴지통 확인을 안내한다. (`--keep-trash`를 쓰면 휴지통으로 보내지만, 그러면 옛 URL이 계속 응답할 수 있다.)
+  2. exit 7이 나면 Blogger 에디터의 휴지통이 비어 있는지 확인하고, 몇 분 뒤 옛 URL을 직접 열어 404를 재확인할 것. CDN 캐시일 수도 있다.
   3. 새 글을 올바른 슬러그로 처음부터 새로 작성·발행
   4. Search Console "삭제" 도구에서 옛 URL을 명시적으로 "임시 삭제" 요청 (재크롤 가속)
 
@@ -193,7 +193,7 @@ npm run naver:login
 
 ### 초안 생성
 ```bash
-npm run naver:draft -- --title "제목" --content "./draft.html" [--category "카테고리"] [--tags "태그1,태그2"]
+npm run naver:draft -- --html ./draft.html --title "제목" [--category "카테고리"] [--tags "태그1,태그2"] [--dry-run]
 ```
 
 ### 발행

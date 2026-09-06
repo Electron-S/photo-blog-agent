@@ -3,7 +3,7 @@ require('dotenv').config();
 const fs = require('fs');
 const { createDraftPost } = require('../lib/blogger');
 const { getArg, validateKnownFlags } = require('../lib/cli-args');
-const { lintDraftHtml, formatLintReport } = require('../lib/lint-draft');
+const { lintDraftHtml, formatLintReport, validateUploadResult } = require('../lib/lint-draft');
 const { verifyImageUrls } = require('../lib/verify-images');
 
 function printUsage() {
@@ -64,6 +64,11 @@ async function main() {
       console.error(`Error: --upload-result를 읽을 수 없음 (${uploadResultPath}): ${err.message}`);
       process.exit(1);
     }
+    const shape = validateUploadResult(uploadResult, `--upload-result "${uploadResultPath}"`);
+    if (!shape.ok) {
+      console.error(`Error: ${shape.error}`);
+      process.exit(1);
+    }
   }
 
   console.log('Linting draft HTML...');
@@ -80,6 +85,8 @@ async function main() {
   }
   if (lint.stats.dimensionCheck === 'skipped') {
     console.log('Draft lint passed. (--upload-result 미지정 — img 치수 대조는 건너뜀)');
+  } else if (lint.stats.dimensionCheck !== 'ok') {
+    console.log(`Draft lint passed. (치수 대조 커버리지 ${lint.stats.dimensionCheck})`);
   } else {
     console.log('Draft lint passed.');
   }

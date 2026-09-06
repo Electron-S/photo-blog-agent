@@ -112,6 +112,11 @@ test('img 필수 속성 누락은 각각 error', () => {
   }
 });
 
+test('width="0"은 양의 정수가 아니므로 error (CLS 방지에 무의미)', () => {
+  const body = `<figure style="${FIG_STYLE}"><img loading="lazy" width="0" height="0" style="max-width:100%;height:auto;" src="https://x/photo-01.webp" alt="설명"><figcaption>캡션.</figcaption></figure><p>문장. 또 문장.</p>`;
+  assert.ok(lintFull(body).errors.some((e) => e.rule === 'img-width-height'));
+});
+
 test('쿼리스트링이 붙은 webp는 통과', () => {
   const body = `<figure style="${FIG_STYLE}"><img ${IMG_ATTRS} src="https://x/photo-01.webp?v=2" alt="설명"><figcaption>캡션이다.</figcaption></figure><p>다음 문장. 또 문장.</p>`;
   assert.ok(!lintFull(body).errors.some((e) => e.rule === 'img-src-webp'));
@@ -255,11 +260,54 @@ test('업로드 결과의 치수가 null이면 error (추측한 값이라는 뜻
   assert.ok(r.errors.some((e) => e.rule === 'img-dimensions-unknown'));
 });
 
-test('basename 폴백 매칭 (encodeURIComponent 경로 대응)', () => {
-  const uploadResult = { images: [{ index: 1, url: 'https://x/posts/2026-05-10-abc/photo-01.webp', width: 1024, height: 768 }] };
+test('tail 폴백 — 호스트가 달라도 같은 postDir/파일명이면 매칭', () => {
+  // uploadAsset이 경로에 encodeURIComponent를 적용하거나 baseUrl이 바뀌어도
+  // `{postDir}/photo-NN.webp` 단위로는 같으므로 매칭되어야 한다.
+  const uploadResult = {
+    images: [{ index: 1, url: 'https://other-host/deep/path/x/photo-01.webp', width: 1024, height: 768 }],
+  };
   const r = lintDraftHtml(doc(`${figure(1)}<p>문장. 또 문장.</p>${filler(60)}<h3>가</h3>${filler(20)}<h3>나</h3>${filler(20)}<h3>다</h3>${filler(20)}`), { uploadResult });
-  assert.ok(!r.errors.some((e) => e.rule === 'img-dimensions-match'));
+  assert.ok(!r.errors.some((e) => e.rule === 'img-dimensions-match'), JSON.stringify(rulesOf(r)));
   assert.ok(!r.warnings.some((w) => w.rule === 'img-not-in-upload-result'));
+  assert.equal(r.stats.dimensionCheck, 'ok');
+});
+
+test('폴더가 다르면 매칭하지 않는다 (파일명만 보면 모든 포스트가 서로 매칭된다)', () => {
+  // 모든 포스트의 이미지가 photo-01.webp … 이므로 basename만으로 매칭하면
+  // 다른 포스트 이미지가 항상 매칭되어, img-not-in-upload-result가 영원히
+  // 발동하지 않고 img-dimensions-match는 엉뚱한 사진과 대조해 오진한다.
+  const uploadResult = {
+    images: [{ index: 1, url: 'https://x/posts/9999-01-01-DIFFERENT/photo-01.webp', width: 1, height: 1 }],
+  };
+  const r = lintDraftHtml(doc(`${figure(1)}<p>문장. 또 문장.</p>${filler(60)}<h3>가</h3>${filler(20)}<h3>나</h3>${filler(20)}<h3>다</h3>${filler(20)}`), { uploadResult });
+  assert.ok(!r.errors.some((e) => e.rule === 'img-dimensions-match'), '엉뚱한 사진과 대조하면 안 된다');
+  assert.ok(r.warnings.some((w) => w.rule === 'img-not-in-upload-result'));
+  assert.ok(r.errors.some((e) => e.rule === 'upload-result-no-match'), '한 장도 대조 못 하면 error');
+});
+
+test('dimensionCheck는 커버리지를 숫자로 보고한다', () => {
+  const body = `${figure(1)}<p>문장. 또 문장.</p>${figure(2)}<p>문장. 또 문장.</p>`;
+  const tail = `${filler(60)}<h3>가</h3>${filler(20)}<h3>나</h3>${filler(20)}<h3>다</h3>${filler(20)}`;
+  // 2장 중 1장만 업로드 결과에 있음
+  const uploadResult = {
+    images: [{ index: 1, url: 'https://x/photo-01.webp', width: 1024, height: 768 }],
+  };
+  const r = lintDraftHtml(doc(body + tail), { uploadResult });
+  assert.equal(r.stats.dimensionCheck, 'partial (1/2)');
+  assert.equal(r.stats.dimensionsMatched, 1);
+  // 일부라도 대조됐으면 upload-result-no-match는 안 뜬다
+  assert.ok(!r.errors.some((e) => e.rule === 'upload-result-no-match'));
+});
+
+test('validateUploadResult — 인자 없음과 형식 오류를 구분한다', () => {
+  const { validateUploadResult } = require('../lib/lint-draft');
+  assert.equal(validateUploadResult({ images: [] }, 'x').ok, true);
+  // metadata-*.json을 잘못 넘긴 경우
+  assert.equal(validateUploadResult({ photos: [], primary_date: '2026-05-10' }, 'x').ok, false);
+  assert.match(validateUploadResult({ photos: [] }, 'x').error, /images 배열이 없습니다/);
+  assert.equal(validateUploadResult(null, 'x').ok, false);
+  assert.equal(validateUploadResult([], 'x').ok, false);
+  assert.equal(validateUploadResult('str', 'x').ok, false);
 });
 
 test('업로드 결과에 없는 이미지는 warn', () => {

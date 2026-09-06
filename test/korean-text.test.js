@@ -113,3 +113,22 @@ test('findDecorativeArrows — 화살표는 별도 (warn 등급)', () => {
   assert.deepEqual(findDecorativeArrows('잠실역 → 소피텔'), ['→']);
   assert.deepEqual(findDecorativeArrows('화살표 없음'), []);
 });
+
+test('findEmoji — 화살표는 이모지가 아니다 (decorative-arrow가 담당)', () => {
+  // ↔ ↕ ↖ ↩ 등은 유니코드가 Extended_Pictographic으로도 분류한다. 그대로 두면
+  // 같은 글자가 no-emoji(error)와 decorative-arrow(warn)에 동시에 걸려
+  // error가 이기고, "→는 되는데 ↔는 안 되는" 재현 불가능한 규칙이 된다.
+  for (const c of ['\u2194', '\u2195', '\u2196', '\u21A9', '\u2192', '\u2190']) {
+    assert.deepEqual(findEmoji(c), [], `U+${c.codePointAt(0).toString(16)} 가 이모지로 잡힘`);
+    assert.deepEqual(findDecorativeArrows(c), [c], `U+${c.codePointAt(0).toString(16)} 가 화살표로 안 잡힘`);
+  }
+});
+
+test('두 규칙의 문자 집합은 겹치지 않는다 (불변식)', () => {
+  for (let cp = 0x2190; cp <= 0x21FF; cp += 1) {
+    const c = String.fromCodePoint(cp);
+    const isEmoji = findEmoji(c).length > 0;
+    const isArrow = findDecorativeArrows(c).length > 0;
+    assert.ok(!(isEmoji && isArrow), `U+${cp.toString(16)} 가 두 규칙에 동시 매칭`);
+  }
+});

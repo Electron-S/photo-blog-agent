@@ -2,7 +2,7 @@ require('dotenv').config();
 
 const fs = require('fs');
 const path = require('path');
-const { uploadBlogImages } = require('../lib/github-assets');
+const { uploadBlogImages, DEFAULT_MAX_SIZE_KB, MAX_SIZE_KB_LIMIT } = require('../lib/github-assets');
 
 const args = process.argv.slice(2);
 
@@ -14,7 +14,7 @@ function printUsage() {
   console.log('  --date          게시일 (--metadata의 primary_date보다 우선; 둘 다 없거나 null이면 exit 5)');
   console.log('  --slug          URL 슬러그 (기본값: 첫 번째 이미지 파일명에서 생성)');
   console.log('  --work-dir      압축 이미지 임시 디렉토리 (기본값: ./tmp/assets/<date>-<hash>)');
-  console.log('  --max-size-kb   AdSense 이미지 크기 기준 KB (기본값: 150)');
+  console.log(`  --max-size-kb   AdSense 이미지 크기 기준 KB (기본값: ${DEFAULT_MAX_SIZE_KB})`);
   console.log('  --output        결과 JSON 저장 경로 (예: tmp/upload-<slug>.json). lint-draft --upload-result에 사용');
   console.log('  --local-only    GitHub 업로드/검증 생략, 압축까지만 (네이버 발행 경로)');
   console.log('');
@@ -66,8 +66,8 @@ function parseArgs() {
 function parseMaxSizeKB(raw) {
   if (raw == null) return undefined;
   const n = Number(raw);
-  if (!Number.isInteger(n) || n <= 0 || n > 10000) {
-    console.error(`Error: --max-size-kb must be a positive integer (1-10000), got "${raw}"`);
+  if (!Number.isInteger(n) || n <= 0 || n > MAX_SIZE_KB_LIMIT) {
+    console.error(`Error: --max-size-kb must be a positive integer (1-${MAX_SIZE_KB_LIMIT}), got "${raw}"`);
     process.exit(1);
   }
   return n;
@@ -194,16 +194,19 @@ async function main() {
       height: item.height ?? null,
       originalBytes: item.originalBytes,
       webpBytes: item.webpBytes,
-      ...(item.dimensionsError ? { dimensionsError: item.dimensionsError } : {}),
-      ...(item.oversize ? { oversize: true } : {}),
-      ...(item.fallbackUsed ? {
-        fallbackUsed: true,
-        watermarkApplied: false,
-        orientationApplied: item.orientationApplied,
-      } : {}),
-      ...(item.compressionError ? { compressionError: item.compressionError } : {}),
-      ...(item.verificationError ? { verificationError: item.verificationError } : {}),
-      ...(item.error ? { error: item.error } : {}),
+      // width/height와 같은 이유로 **전부 무조건** 내보낸다. 예전에는 조건부
+      // spread라 watermarkApplied가 fallbackUsed일 때만(그때는 항상 false로)
+      // 등장했다 — 즉 이 JSON에 `watermarkApplied: true`가 한 번도 나오지 않아
+      // `if (!img.watermarkApplied)` 같은 자연스러운 검사가 정상 이미지 100%에서
+      // 오작동했다. 워터마크는 이 프로젝트의 이미지 보호 정책 자체다.
+      oversize: item.oversize === true,
+      fallbackUsed: item.fallbackUsed === true,
+      watermarkApplied: item.watermarkApplied === true,
+      orientationApplied: item.orientationApplied === true,
+      dimensionsError: item.dimensionsError ?? null,
+      compressionError: item.compressionError ?? null,
+      verificationError: item.verificationError ?? null,
+      error: item.error ?? null,
     })),
     summary,
   };
@@ -228,7 +231,10 @@ async function main() {
 }
 
 main().catch((err) => {
-  const details = err.response?.data ? JSON.stringify(err.response.data) : err.message;
-  console.error('Upload failed:', details);
-  process.exit(1);
+  // publish-post.js와 같은 형태 — message/stack/response.data를 모두 남긴다.
+  // 한쪽만 출력하면 결과 매핑 중 TypeError가 났을 때 어느 줄인지 알 수 없다.
+  console.error('Upload failed:', err.message);
+  if (err.stack) console.error(err.stack);
+  if (err.response?.data) console.error('API response:', JSON.stringify(err.response.data));
+  process.exit(err.exitCode || 1);
 });

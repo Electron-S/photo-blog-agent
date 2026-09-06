@@ -122,6 +122,22 @@ node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-
 | `lint-draft.js` | 통과 | 인자/파일 오류 | — | — | — | — | — | — | 규칙 위반 (error 1건 이상) |
 | `create-draft.js` | 성공 | 일반 실패 | — | — | — | — | — | — | 초안 lint 위반 |
 | `update-post.js` | 성공 | 일반 실패 | — | — | — | — | — | — | 초안 lint 위반 |
+| `session-state.js` | 성공 | 인자 오류 | — | — | — | — | — | — | — |
+
+`session-state.js`는 상태 파일이 없거나 손상됐거나 스키마를 위반하면 **9**로 끝납니다.
+
+네이버 스크립트(`naver-*.js`)는 1~9와 겹치지 않게 **10~19** 블록을 씁니다.
+
+| 코드 | 의미 | 조치 |
+|---|---|---|
+| 10 | playwright 모듈·브라우저 바이너리 없음 | `npm install --include=optional` + `npx playwright install chromium` |
+| 11 | 세션 없음·만료·다른 계정 | `npm run naver:login` |
+| 12 | 셀렉터 미발견 (DOM 변경 의심) | `tmp/naver-debug/` 덤프 확인 → `npm run naver:inspect` |
+| 13 · 14 · 15 | 카테고리 · 태그 · 발행 후 검증 | **예약** — 발행 레이어 구현 후 사용 |
+| 16 | 이미지 로컬 파일 없음·업로드 미완료 | `tmp/assets/` 확인, `upload-images.js` 재실행 |
+| 17 | headed 실행 불가 (디스플레이 없음) | WSLg / X 서버 확인 |
+| 18 | 공개 발행 안전장치 거부 | `NAVER_ALLOW_PUBLIC=1` + `--visibility public` |
+| 19 | 초안 HTML → 블록 변환 실패 | 허용 밖 태그·구조 오류를 초안에서 제거 |
 
 ## 블로그 글 작성 워크플로우
 

@@ -39,7 +39,8 @@ function printUsage() {
   console.log('');
   console.log('공개 발행은 --visibility public 과 NAVER_ALLOW_PUBLIC=1 을 **둘 다** 요구합니다.');
   console.log('종료 코드: 0=성공, 1=인자 오류, 10=playwright 없음, 11=세션, 12=셀렉터,');
-  console.log('           13=카테고리, 14=태그, 15=발행 후 검증, 16=이미지, 17=headed 불가, 18=공개 발행 거부');
+  console.log('           16=이미지, 17=headed 불가, 18=공개 발행 거부, 19=HTML→블록 변환 실패');
+  console.log('           13=카테고리, 14=태그, 15=발행 후 검증 — 발행 레이어 구현 후 사용 (현재 예약)');
   process.exit(1);
 }
 

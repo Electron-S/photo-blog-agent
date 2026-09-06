@@ -36,7 +36,7 @@ function printUsage() {
   console.log(`단계 이름: ${STEPS.join(', ')}`);
   console.log('steps_remaining은 항상 steps_completed로부터 재계산됩니다 (직접 지정 불가).');
   console.log('');
-  console.log('종료 코드: 0=성공, 1=인자 오류, 9=상태 파일 손상 또는 스키마 위반');
+  console.log('종료 코드: 0=성공, 1=인자 오류, 9=상태 파일 없음·손상·스키마 위반');
   process.exit(1);
 }
 
@@ -179,8 +179,8 @@ function main() {
   // read
   const existing = readState(slug, dir);
   if (!existing) {
-    console.error(`session-state가 없습니다 (${statePath(slug, dir)}).`);
-    process.exit(1);
+    // update와 같은 조건에는 같은 코드를 쓴다 (예전에는 update=9, read=1로 갈렸다).
+    throw new SessionStateError(`session-state가 없습니다 (${statePath(slug, dir)}).`);
   }
   for (const w of existing.warnings) console.error(`  경고: ${w}`);
 

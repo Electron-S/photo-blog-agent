@@ -5,7 +5,7 @@
 require('dotenv').config();
 
 const fs = require('fs');
-const { lintDraftHtml, formatLintReport } = require('../lib/lint-draft');
+const { lintDraftHtml, formatLintReport, validateUploadResult } = require('../lib/lint-draft');
 
 const FLAGS_WITH_VALUE = new Set(['--upload-result', '--format']);
 const BOOLEAN_FLAGS = new Set(['--strict']);
@@ -93,7 +93,15 @@ function main() {
   }
 
   const uploadPath = get('--upload-result');
-  const uploadResult = uploadPath ? readJson(uploadPath, '--upload-result') : undefined;
+  let uploadResult;
+  if (uploadPath) {
+    uploadResult = readJson(uploadPath, '--upload-result');
+    const shape = validateUploadResult(uploadResult, `--upload-result "${uploadPath}"`);
+    if (!shape.ok) {
+      console.error(`Error: ${shape.error}`);
+      process.exit(1);
+    }
+  }
 
   const format = get('--format') || 'text';
   if (format !== 'text' && format !== 'json') {
@@ -111,6 +119,8 @@ function main() {
     console.log(`stats: ${JSON.stringify(result.stats)}`);
     if (result.stats.dimensionCheck === 'skipped') {
       console.log('참고: --upload-result 미지정 — img width/height 실제 치수 대조를 건너뛰었습니다.');
+    } else if (result.stats.dimensionCheck !== 'ok') {
+      console.log(`참고: 치수 대조 커버리지 ${result.stats.dimensionCheck} — 일부 이미지가 업로드 결과와 매칭되지 않았습니다.`);
     }
     if (result.ok) {
       console.log(`통과 (error 0건, warn ${result.warnings.length}건)`);

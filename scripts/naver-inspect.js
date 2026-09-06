@@ -174,11 +174,21 @@ async function main() {
     }
 
     if (opts.keepOpen) {
-      console.log('\n브라우저를 열어 둡니다. DevTools로 직접 확인한 뒤 Enter를 누르세요...');
-      await new Promise((resolve) => {
-        process.stdin.resume();
-        process.stdin.once('data', () => { process.stdin.pause(); resolve(); });
-      });
+      // stdin이 /dev/null이거나 닫힌 파이프면 'data'는 영원히 오지 않는다.
+      // 그대로 두면 finally의 context.close()가 실행되지 않아 브라우저와
+      // .naver-profile SingletonLock이 잡힌 채 남는다.
+      if (!process.stdin.isTTY) {
+        console.log('\n--keep-open은 대화형 터미널에서만 동작합니다 (stdin이 TTY가 아님). 브라우저를 닫습니다.');
+      } else {
+        console.log('\n브라우저를 열어 둡니다. DevTools로 직접 확인한 뒤 Enter를 누르세요...');
+        await new Promise((resolve) => {
+          const done = () => { process.stdin.pause(); resolve(); };
+          process.stdin.resume();
+          process.stdin.once('data', done);
+          process.stdin.once('end', done);
+          process.stdin.once('error', done);
+        });
+      }
     }
 
     console.log('\n다음 단계: 위 표를 보고 lib/naver-selectors.js의 후보 순서를 확정하고');
