@@ -233,3 +233,95 @@ test('htmlToBlocks — figure/ul이 허용 밖 자식을 조용히 버리지 않
     /<li>가 아닌 요소/,
   );
 });
+
+// --- 5차 리뷰 회귀 ---
+//
+// 이 라운드의 결함은 전부 같은 뿌리였다: **raw 문자열과 최종화된 문자열을 한
+// 버퍼에 섞는 것.** 그래서 조각마다 디코드 횟수·<br> 처리·화이트리스트 적용이
+// 달라졌다. 이제 재귀가 조각 배열을 돌려주고 finalizeParts가 한 번에 정리하므로,
+// 테스트도 "케이스"가 아니라 **위치 전수**로 확인한다.
+
+test('빈 줄 스페이서 <p><br></p>는 블록을 만들지 않는다 (&nbsp; 관용구와 같은 결과)', () => {
+  // 이전 구현은 조각별로만 trim하고 join 뒤를 trim하지 않아 text="\n"인
+  // 빈 문단·빈 제목·내용 없는 불릿("- ")을 만들었다. 에디터에 그대로 타이핑된다.
+  for (const html of ['<p><br></p>', '<h2><br></h2>', '<h3><br></h3>', '<ul><li><br></li></ul>']) {
+    assert.deepEqual(htmlToBlocks(html).blocks, [], `${html} 가 빈 블록을 만듦`);
+  }
+  // 같은 목적의 &nbsp; 스페이서와 결과가 같아야 한다
+  assert.deepEqual(htmlToBlocks('<p>&nbsp;</p>').blocks, []);
+  // 앞뒤 <br>만 정리하고 **중간의 의도된 빈 줄은 보존**한다
+  assert.equal(htmlToBlocks('<p>가<br></p>').blocks[0].text, '가');
+  assert.equal(htmlToBlocks('<p><br>가</p>').blocks[0].text, '가');
+  assert.equal(htmlToBlocks('<p>가<br>나</p>').blocks[0].text, '가\n나');
+  assert.equal(htmlToBlocks('<p>가<br><br>나</p>').blocks[0].text, '가\n\n나');
+});
+
+test('figcaption도 인라인 화이트리스트를 탄다 (<a>에서 고친 우회가 여기 남아 있었다)', () => {
+  assert.throws(
+    () => htmlToBlocks('<figure><img src="a.webp"><figcaption><script>alert(1)</script>캡션</figcaption></figure>'),
+    /허용되지 않은 요소/,
+  );
+  // figcaption 안의 링크가 조용히 사라지지 않는다
+  const r = htmlToBlocks('<figure><img src="a.webp"><figcaption>가<span><a href="http://h/">링크</a></span></figcaption></figure>');
+  assert.deepEqual(r.links, [{ text: '링크', href: 'http://h/' }]);
+  assert.match(r.blocks[0].caption, /http:\/\/h\//);
+});
+
+test('alt와 caption은 같은 파이프라인 — 디코드 1회, 제어문자 제거, 한 줄', () => {
+  const capOf = (h) => htmlToBlocks(h).blocks[0];
+  // NUL(`&#0;`)이 alt로만 새던 것 — 커밋이 막으려던 페이로드가 그대로 실렸다
+  let b = capOf('<figure><img src="a.webp" alt="가&#0;나"><figcaption>가&#0;나</figcaption></figure>');
+  assert.equal(b.alt, '가나');
+  assert.equal(b.caption, '가나');
+  // 엔티티는 정확히 한 번만 디코드된다
+  b = capOf('<figure><img src="a.webp" alt="&amp;amp;x"><figcaption>&amp;amp;x</figcaption></figure>');
+  assert.equal(b.alt, '&amp;x');
+  assert.equal(b.caption, '&amp;x');
+  // 한 줄 입력 필드라 개행이 남으면 안 된다
+  b = capOf('<figure><img src="a.webp" alt="a  b&#10;c"><figcaption>a<br>b</figcaption></figure>');
+  assert.equal(b.alt, 'a b c');
+  assert.equal(b.caption, 'a b');
+  assert.ok(!b.caption.includes('\n') && !b.alt.includes('\n'));
+});
+
+test('엔티티는 위치와 무관하게 정확히 한 번 디코드된다 (컨테이너 직속 텍스트 포함)', () => {
+  // <div> 직속 텍스트만 normalizeWhitespace 위에 decodeEntities를 한 번 더 얹어
+  // `&amp;lt;`가 거기서만 `<`가 됐다 (a1f6bbf가 splitSentences에서 고친 버그).
+  const textOfFirst = (h) => htmlToBlocks(h).blocks[0].text;
+  for (const wrap of ['<p>%s</p>', '<div>%s</div>', '<section>%s</section>',
+    '<p><strong>%s</strong></p>', '<ul><li>%s</li></ul>', '<h3>%s</h3>']) {
+    const html = wrap.replace('%s', '&amp;lt;가');
+    assert.match(textOfFirst(html), /&lt;가/, `${html} 가 이중 디코드됨`);
+  }
+});
+
+test('제어문자는 디코드로 되살아나도 페이로드에 실리지 않는다', () => {
+  // NUL만 막고 있었다. 근거("에디터에 타이핑될 페이로드")는 나머지 C0/C1에도 같다.
+  for (const ent of ['&#0;', '&#8;', '&#27;', '&#127;', '&#133;']) {
+    const t = htmlToBlocks(`<p>가${ent}나</p>`).blocks[0].text;
+    assert.equal(t, '가나', `${ent} 가 남음: ${JSON.stringify(t)}`);
+    assert.ok(![...t].some((c) => c.codePointAt(0) < 0x20), `${ent}: 제어문자 잔존`);
+  }
+  // 공백류 엔티티는 제거가 아니라 공백 1칸으로 접힌다 (<br>과 구별된다)
+  assert.equal(htmlToBlocks('<p>가&#10;나</p>').blocks[0].text, '가 나');
+  assert.equal(htmlToBlocks('<p>가&#9;나</p>').blocks[0].text, '가 나');
+  assert.equal(htmlToBlocks('<p>가<br>나</p>').blocks[0].text, '가\n나');
+});
+
+test('links[].href는 본문에 박히는 문자열과 글자 단위로 같다', () => {
+  // href만 따로 디코드해서, 공백·`&#0;`이 든 href가 본문과 links[]에서 갈렸다.
+  // 사용자는 links[] 출력을 보고 손으로 링크를 다시 건다.
+  for (const raw of ['https://x.com/a\nb', 'https://x.com/a&#0;b', '  https://x.com/a  ',
+    'https://x.com/?a=1&amp;b=2', 'https://x.com/a  b']) {
+    const r = htmlToBlocks(`<p><a href="${raw}">L</a></p>`);
+    assert.equal(r.links.length, 1, raw);
+    assert.ok(
+      r.blocks[0].text.includes(`(${r.links[0].href})`),
+      `본문 ${JSON.stringify(r.blocks[0].text)} 에 links.href ${JSON.stringify(r.links[0].href)} 가 그대로 없음`,
+    );
+  }
+  // 공백뿐인 href는 링크가 아니다 — 빈 괄호를 본문에 남기지 않는다
+  const blank = htmlToBlocks('<p><a href="   ">L</a></p>');
+  assert.deepEqual(blank.links, []);
+  assert.equal(blank.blocks[0].text, 'L');
+});

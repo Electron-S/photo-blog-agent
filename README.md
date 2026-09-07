@@ -187,6 +187,11 @@ npm run naver:login                         # 세션 수립 (headed 창 필요)
 npm run naver:inspect -- --dump --keep-open # 실물 셀렉터 확인
 ```
 
+`naver:doctor`는 **게이트 통과 전까지 exit 0을 내지 않습니다.** 항목별 OK/FAIL 표를
+끝까지 출력한 뒤, 가장 먼저 조치할 항목의 코드로 종료합니다 — 앞이 다 통과했다면
+마지막에 남는 것은 셀렉터 미검증이므로 exit 12입니다. `exit 0` = "정말로 발행 가능"이라
+`npm run naver:doctor && npm run naver:draft ...` 체이닝이 안전합니다.
+
 ### Blogger와의 차이
 
 - **이미지**: Blogger는 GitHub Pages 외부 URL, 네이버는 **로컬 파일을 에디터에 직접 업로드**.

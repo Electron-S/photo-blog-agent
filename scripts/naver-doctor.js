@@ -93,14 +93,23 @@ async function main() {
       // exit 코드를 모드가 아니라 **원인**으로 정한다. 시스템 라이브러리 결손을
       // 17(headed 불가 → WSLg 확인)로 보내면 실제 조치(install-deps)와 무관한
       // 안내가 나간다.
-      const msg = err.message.split('\n')[0];
-      const missingLib = /error while loading shared libraries|cannot open shared object|Host system is missing dependencies|\.so[.0-9]*: cannot open/i.test(err.message);
-      const noDisplay = /Missing X server|cannot open display|DISPLAY|Target page, context or browser has been closed/i.test(err.message);
-      record(`브라우저 기동 (${headlessSmoke ? 'headless' : 'headed'})`, false, msg
-        + (missingLib ? ' — sudo npx playwright install-deps chromium' : ''));
+      const full = String((err && err.message) || err || '');
+      const msg = full.split('\n')[0];
+      const missingLib = /error while loading shared libraries|cannot open shared object|Host system is missing dependencies|\.so[.0-9]*: cannot open/i.test(full);
+      const noDisplay = /Missing X server|cannot open display|DISPLAY|Target page, context or browser has been closed/i.test(full);
+      // 분류되지 않은 실패를 **모드**로 코드를 정해 내보내지 않는다. 폴백이
+      // headless면 10(=playwright/브라우저 없음), headed면 17(=WSLg 확인)이었는데,
+      // 바로 위 1·2행이 playwright·chromium을 OK로 찍은 직후라 자기모순이었다.
+      // 컨테이너/CI에서 흔한 "Running as root without --no-sandbox" 같은 실패가
+      // 정확히 여기로 온다 — 조치가 install도 WSLg도 아니다.
+      const hint = missingLib ? ' — sudo npx playwright install-deps chromium' : '';
+      record(`브라우저 기동 (${headlessSmoke ? 'headless' : 'headed'})`, false, msg + hint);
       if (missingLib) fail(NAVER_EXIT.MISSING_PLAYWRIGHT);
       else if (noDisplay && !headlessSmoke) fail(NAVER_EXIT.NO_DISPLAY);
-      else fail(headlessSmoke ? NAVER_EXIT.MISSING_PLAYWRIGHT : NAVER_EXIT.NO_DISPLAY);
+      else {
+        console.log('        (원인을 분류하지 못했습니다 — 위 메시지가 유일한 단서입니다)');
+        fail(NAVER_EXIT.GENERAL);
+      }
     }
   }
 

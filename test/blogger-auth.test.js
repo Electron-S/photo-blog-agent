@@ -1,0 +1,131 @@
+// lib/blogger.js — 인증 실패 경로의 **라벨과 조치 안내**를 고정한다.
+//
+// 여기서 검증하는 것은 "어느 시스템이 실패했는가"이다. OAuth 토큰 엔드포인트의
+// 실패를 Blogger API 실패로 보고하면, 첫 줄이 엉뚱한 곳을 가리켜 사용자가
+// 재시도·네트워크 점검으로 시간을 버린다. axios를 스텁으로 갈아끼워
+// 네트워크·자격증명 없이 확인한다 (CI에 .env가 없다).
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const Module = require('node:module');
+
+const BLOGGER_PATH = path.join(__dirname, '..', 'lib', 'blogger.js');
+
+// scenario: { token(n), blogger(n) } — 각 호출 회차에 무엇을 돌려줄지 결정한다.
+async function withStubbedAxios(scenario, run) {
+  const calls = { token: 0, blogger: 0 };
+  const httpError = ({ status, data }) => {
+    const err = new Error(`Request failed with status code ${status}`);
+    err.code = 'ERR_BAD_REQUEST';
+    err.response = { status, data };
+    return err;
+  };
+  const axiosStub = async (cfg) => {
+    calls.blogger += 1;
+    const s = scenario.blogger(calls.blogger, cfg);
+    if (s.ok) return { data: s.data };
+    throw httpError(s);
+  };
+  axiosStub.post = async () => {
+    calls.token += 1;
+    const s = scenario.token(calls.token);
+    if (s.ok) return { data: { access_token: 'tok' } };
+    throw httpError(s);
+  };
+
+  const origLoad = Module._load;
+  const origEnv = { ...process.env };
+  Module._load = function load(request, ...rest) {
+    if (request === 'axios') return axiosStub;
+    return origLoad.call(this, request, ...rest);
+  };
+  Object.assign(process.env, {
+    BLOGGER_BLOG_ID: '1', BLOGGER_CLIENT_ID: 'c',
+    BLOGGER_CLIENT_SECRET: 's', BLOGGER_REFRESH_TOKEN: 'r',
+  });
+  delete require.cache[require.resolve(BLOGGER_PATH)];
+  try {
+    // await가 없으면 finally가 run의 첫 await 이전에 실행돼 스텁·env가 벗겨진다.
+    return await run(require(BLOGGER_PATH), calls);
+  } finally {
+    Module._load = origLoad;
+    delete require.cache[require.resolve(BLOGGER_PATH)];
+    for (const k of Object.keys(process.env)) if (!(k in origEnv)) delete process.env[k];
+    Object.assign(process.env, origEnv);
+  }
+}
+
+const OAUTH_FAIL = (error, description, status) => () => ({
+  status, data: { error, error_description: description },
+});
+const BLOGGER_OK = () => ({ ok: true, data: { id: 'B' } });
+
+test('만료된 refresh token(OAuth 400)이 Blogger API 실패로 둔갑하지 않는다', async () => {
+  // 이 프로젝트에서 가장 잦은 인증 실패다. invalid_grant는 **400**이라 401
+  // 재발급 분기를 타지 않았고, getAccessToken이 try 안에 있어서 바깥 catch가
+  // "Blogger API GET .../blogs/1 실패 400"이라는 라벨을 붙였다 — Blogger는
+  // 호출된 적도 없는데. OAuth 바디는 error가 문자열이라 error.message 추출이
+  // undefined가 되어 원인 문구(invalid_grant)조차 사라졌다.
+  await withStubbedAxios({
+    token: OAUTH_FAIL('invalid_grant', 'Token has been expired or revoked.', 400),
+    blogger: BLOGGER_OK,
+  }, async ({ getBlog }, calls) => {
+    await assert.rejects(getBlog, (err) => {
+      assert.match(err.message, /OAuth 토큰 재발급 실패/);
+      assert.doesNotMatch(err.message.split('\n')[0], /Blogger API/);
+      assert.match(err.message, /invalid_grant/);
+      assert.match(err.message, /blogger:auth/);
+      return true;
+    });
+    assert.equal(calls.blogger, 0, 'Blogger API가 호출되면 안 된다');
+  });
+});
+
+test('invalid_client는 REFRESH_TOKEN이 아니라 CLIENT_ID/SECRET을 가리킨다', async () => {
+  // 조치가 다르면 안내도 달라야 한다 — 토큰을 몇 번 재발급해도 낫지 않는다.
+  await withStubbedAxios({
+    token: OAUTH_FAIL('invalid_client', 'The OAuth client was not found.', 401),
+    blogger: BLOGGER_OK,
+  }, async ({ getBlog }, calls) => {
+    await assert.rejects(getBlog, (err) => {
+      assert.match(err.message, /BLOGGER_CLIENT_ID \/ BLOGGER_CLIENT_SECRET/);
+      assert.doesNotMatch(err.message.split('\n')[0], /Blogger API/);
+      return true;
+    });
+    // OAuth 401을 "Blogger 401"로 오인해 토큰을 한 번 더 받으러 가지 않는다
+    assert.equal(calls.token, 1);
+    assert.equal(calls.blogger, 0);
+  });
+});
+
+test('Blogger가 낸 401만 토큰 재발급 후 재시도한다', async () => {
+  await withStubbedAxios({
+    token: () => ({ ok: true }),
+    blogger: (n) => (n === 1
+      ? { status: 401, data: { error: { message: 'Invalid Credentials' } } }
+      : BLOGGER_OK()),
+  }, async ({ getBlog }, calls) => {
+    assert.deepEqual(await getBlog(), { id: 'B' });
+    assert.equal(calls.blogger, 2);
+    assert.equal(calls.token, 2);
+  });
+});
+
+test('진짜 Blogger 실패는 Blogger 라벨과 reason 태그를 유지한다', async () => {
+  await withStubbedAxios({
+    token: () => ({ ok: true }),
+    blogger: () => ({
+      status: 400,
+      data: { error: { message: 'Invalid value', errors: [{ reason: 'invalidParameter' }] } },
+    }),
+  }, async ({ getBlog }) => {
+    await assert.rejects(getBlog, (err) => {
+      assert.match(err.message, /Blogger API GET/);
+      assert.match(err.message, /\[invalidParameter\]/);
+      assert.match(err.message, /Invalid value/);
+      assert.equal(err.status, 400);
+      return true;
+    });
+  });
+});

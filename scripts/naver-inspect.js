@@ -33,10 +33,21 @@ function printUsage() {
 }
 
 // 레지스트리를 (key, candidates[]) 목록으로 평탄화한다.
+//
+// 키 목록을 **하드코딩하지 않는다.** 사람이 이 표를 보고 VERIFIED_AT을 채우는
+// 구조라, 레지스트리에 키를 추가했는데 여기에 안 적으면 그 키는 표에 아예 나오지
+// 않고 "전부 확인했다"고 믿은 채 게이트가 열린다. Object.keys에서 유도하고,
+// 처리하지 못한 키가 남으면 그 자리에서 죽는다.
+const SPECIAL_KEYS = new Set(['frame', 'startupModals', 'overlayProbe', 'visibility']);
+
 function flattenRegistry() {
   const out = [];
   const push = (key, candidates) => {
-    if (Array.isArray(candidates) && candidates.length) out.push({ key, candidates });
+    if (!Array.isArray(candidates) || !candidates.length) {
+      throw new Error(`셀렉터 레지스트리의 "${key}"에 후보 배열이 없습니다. `
+        + 'lib/naver-selectors.js를 확인하세요 (조용히 건너뛰면 확인 표에서 사라집니다).');
+    }
+    out.push({ key, candidates });
   };
 
   push('frame.root', SELECTORS.frame.rootCandidates);
@@ -45,15 +56,21 @@ function flattenRegistry() {
     push(`modal.${m.key}.dismiss`, m.dismiss);
   }
   push('overlayProbe', SELECTORS.overlayProbe);
-
-  for (const key of ['title', 'body', 'imageComponent', 'imageElement', 'photoButton', 'fileInput',
-    'saveDraft', 'saveDraftDone', 'publishOpen', 'publishLayer', 'categoryOpen',
-    'categoryItems', 'categorySelected', 'tagInput', 'tagChips', 'publishConfirm']) {
-    push(key, SELECTORS[key] && SELECTORS[key].candidates);
+  for (const sub of Object.keys(SELECTORS.visibility)) {
+    push(`visibility.${sub}`, SELECTORS.visibility[sub]);
   }
-  push('visibility.private', SELECTORS.visibility.private);
-  push('visibility.public', SELECTORS.visibility.public);
-  push('visibility.selected', SELECTORS.visibility.selected);
+
+  const unhandled = [];
+  for (const key of Object.keys(SELECTORS)) {
+    if (SPECIAL_KEYS.has(key)) continue;
+    const entry = SELECTORS[key];
+    if (entry && Array.isArray(entry.candidates)) push(key, entry.candidates);
+    else unhandled.push(key);
+  }
+  if (unhandled.length) {
+    throw new Error(`셀렉터 레지스트리에 확인 표가 다루지 못하는 키가 있습니다: ${unhandled.join(', ')}. `
+      + 'scripts/naver-inspect.js의 flattenRegistry를 갱신하세요.');
+  }
   return out;
 }
 
@@ -73,21 +90,30 @@ async function report(scope, label, entries) {
   for (const { key, candidates } of entries) {
     let matched = -1;
     let total = 0;
+    const errors = [];
     for (let i = 0; i < candidates.length; i += 1) {
       const n = await countIn(scope, candidates[i]);
-      const num = typeof n === 'number' ? n : 0;
+      // 조회 실패(ERR)를 0으로 세탁하지 않는다. 0으로 바꾸면 **우리 파일의 오타**가
+      // "네이버 DOM이 바뀌었으니 후보를 새로 찾으라"는 정반대 진단이 되고,
+      // 사람이 그 요약을 근거로 VERIFIED_AT을 채운다.
+      const isErr = typeof n !== 'number';
+      if (isErr) errors.push(`candidate[${i}] ${candidates[i]} — ${n}`);
+      const num = isErr ? 0 : n;
       if (num > 0 && matched === -1) matched = i;
       total += num;
-      const mark = num === 0 ? ' ' : (num === 1 ? '✓' : '!');
+      const mark = isErr ? '✗' : (num === 0 ? ' ' : (num === 1 ? '✓' : '!'));
       console.log(`${key.padEnd(26)} ${String(i).padStart(4)}  ${String(n).padStart(5)}  ${mark} ${candidates[i]}`);
     }
-    summary.push({ key, matched, total });
+    summary.push({ key, matched, total, errors });
   }
 
   console.log('\n--- 요약 ---');
+  const errored = summary.filter((s) => s.errors.length);
   const problems = [];
   for (const s of summary) {
-    if (s.matched === -1) {
+    if (s.matched === -1 && s.errors.length) {
+      problems.push(`${s.key}: 조회 실패 ${s.errors.length}건 — 매칭 여부를 **알 수 없습니다**`);
+    } else if (s.matched === -1) {
       problems.push(`${s.key}: 매칭 0건 — 후보를 새로 찾아야 합니다`);
     } else if (s.matched > 0) {
       problems.push(`${s.key}: candidate[${s.matched}]이 첫 매칭 — 이 후보를 1순위로 올리세요`);
@@ -97,6 +123,12 @@ async function report(scope, label, entries) {
     console.log('  모든 key가 1순위 후보로 매칭됩니다.');
   } else {
     for (const p of problems) console.log(`  - ${p}`);
+  }
+
+  if (errored.length) {
+    console.log('\n  ※ 조회 자체가 실패한 후보가 있습니다 (DOM 변경이 아니라 우리 셀렉터 문제일 수 있습니다):');
+    for (const s of errored) for (const e of s.errors) console.log(`    ✗ ${s.key} ${e}`);
+    console.log('  ※ 이 상태에서는 확인이 완료되지 않았습니다 — VERIFIED_AT을 채우지 마세요.');
   }
   return summary;
 }

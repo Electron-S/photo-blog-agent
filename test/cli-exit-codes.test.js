@@ -200,6 +200,11 @@ test('naver:doctor — 실행되고 항목별 결과를 낸다', () => {
   const r = run('naver-doctor.js', ['--headless-smoke']);
   assert.match(r.stdout, /playwright 모듈/);
   assert.match(r.stdout, /셀렉터 실물 확인/);
-  // 세션이 없는 것이 정상 상태이므로 0이 아닐 수 있다
-  assert.ok([0, 1, 10, 11, 17].includes(r.status), `status=${r.status}`);
+  // 환경에 따라 무엇이 먼저 걸리는지가 달라진다. 12는 "앞이 전부 통과했고
+  // 셀렉터 실물 확인만 남았다"는 뜻이므로 반드시 허용 목록에 있어야 한다 —
+  // 실물 확인 게이트를 통과하기 전 개발자 환경의 정상 결과가 바로 이것이다.
+  assert.ok([0, 1, 10, 11, 12, 17].includes(r.status), `status=${r.status}\n${r.stdout}${r.stderr}`);
+  // 게이트 미통과 상태에서 exit 0이 나오면 doctor가 게이트 역할을 잃은 것이다.
+  const { isVerified } = require('../lib/naver-selectors');
+  if (!isVerified()) assert.notEqual(r.status, 0, 'VERIFIED_AT=null인데 doctor가 통과로 끝났다');
 });
