@@ -332,3 +332,68 @@ test('analyze-photos: 진행 중인 분석을 덮어쓰지 않는다 (핸드오�
   assert.equal(fresh.status, 0);
   assert.match(fresh.stderr, /skeleton saved/);
 });
+
+test('analyze-photos: 사진을 추가해 재실행하면 병합한다 (새 사진이 빠지지 않는다)', (t) => {
+  // skip만 하면 사진을 추가해 재실행하는 정상 시나리오에서 **새 사진이 조용히
+  // 분석 대상에서 빠진다**. 덮어쓰면 채워진 분석이 사라진다. 둘 다 조용한
+  // 손실이므로 병합이 답이다.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-ap4-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const img = (n) => {
+    const p = path.join(dir, n);
+    fs.writeFileSync(p, 'x', 'utf8');
+    return p;
+  };
+  const [a, b, c] = [img('a.jpg'), img('b.jpg'), img('c.jpg')];
+  const out = path.join(dir, 'pa.json');
+  const read = () => JSON.parse(fs.readFileSync(out, 'utf8'));
+  const files = () => read().photos.map((ph) => ph.file);
+
+  assert.equal(run('analyze-photos.js', [a, '--output', out]).status, 0);
+
+  // 비전 모델이 a를 채운다 (capability는 아직 null — 가장 흔한 중단 지점)
+  const filled = read();
+  filled.photos[0].analysis_status = 'completed';
+  filled.photos[0].scene_description = '첫 사진';
+  fs.writeFileSync(out, JSON.stringify(filled), 'utf8');
+
+  // 사진 추가 → 기존 보존 + 새 항목 추가
+  const grow = run('analyze-photos.js', [a, b, '--output', out]);
+  assert.equal(grow.status, 0);
+  assert.deepEqual(files(), ['a.jpg', 'b.jpg'], '새 사진이 빠짐');
+  assert.equal(read().photos[0].scene_description, '첫 사진', '기존 분석이 덮어써짐');
+  assert.equal(read().photos[1].scene_description, null);
+
+  // 같은 목록으로 재실행 → 아무것도 바꾸지 않는다
+  const same = run('analyze-photos.js', [a, b, '--output', out]);
+  assert.equal(same.status, 0);
+  assert.match(same.stderr, /Skipping/);
+  assert.deepEqual(files(), ['a.jpg', 'b.jpg']);
+
+  // capability가 찍힌 뒤에도 사진 추가는 병합된다
+  const done = read();
+  done.analyzed_by_model_capability = 'vision';
+  done.overall_impression = '봄 산책';
+  done.photos[1].scene_description = '둘째 사진';
+  fs.writeFileSync(out, JSON.stringify(done), 'utf8');
+
+  assert.equal(run('analyze-photos.js', [a, b, c, '--output', out]).status, 0);
+  assert.deepEqual(files(), ['a.jpg', 'b.jpg', 'c.jpg']);
+  assert.equal(read().analyzed_by_model_capability, 'vision', 'capability가 초기화됨');
+  assert.equal(read().overall_impression, '봄 산책');
+  assert.equal(read().photos[1].scene_description, '둘째 사진');
+
+  // 사진을 빼고 재실행해도 기존 항목을 지우지 않는다 (조용한 손실 금지)
+  assert.equal(run('analyze-photos.js', [a, '--output', out]).status, 0);
+  assert.deepEqual(files(), ['a.jpg', 'b.jpg', 'c.jpg']);
+
+  // **새 사진 추가 + 기존 사진 일부 제외**를 동시에 — 병합이 실제로 도는 경로다.
+  // (위 케이스는 추가할 것이 없어 skip으로 빠지므로 보존 로직을 타지 않는다.)
+  const d = img('d.jpg');
+  const mix = run('analyze-photos.js', [b, c, d, '--output', out]);
+  assert.equal(mix.status, 0);
+  assert.deepEqual(files().sort(), ['a.jpg', 'b.jpg', 'c.jpg', 'd.jpg'],
+    '이번 호출에 없던 a.jpg의 분석이 사라짐');
+  assert.equal(read().photos.find((ph) => ph.file === 'a.jpg').scene_description, '첫 사진');
+  assert.match(mix.stderr, /그대로 남겼습니다/);
+});

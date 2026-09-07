@@ -78,22 +78,20 @@ function hasAnalysisContent(obj) {
   ));
 }
 
-// 다른 세션/모델이 이미 채운 파일이면 재분석하지 않는다 (모델 간 핸드오프 지점).
+// 이미 내용이 있는 파일은 **덮어쓰지 않고 병합한다.**
+//
+// 그냥 skip하면 사진을 추가해 재실행하는 정상 시나리오(prompts/workflow-steps.md의
+// "같은 slug로 재호출")에서 **새 사진이 조용히 분석 대상에서 빠진다** (실측:
+// a.jpg만 있는 파일에 a.jpg b.jpg로 재실행 → photos는 여전히 1개).
+// 그렇다고 덮어쓰면 채워진 분석이 사라진다. 둘 다 조용한 손실이므로 병합이 답이다:
+//   - 이미 있는 항목은 **그대로 둔다** (채워진 내용 보존)
+//   - 새 사진만 골격으로 추가한다
+//   - 이번 호출에 없는 기존 항목도 지우지 않는다 — 지우면 그게 또 조용한 손실이다.
+//     대신 그런 항목이 있다는 사실을 알린다.
+let existingState = null;
 if (fs.existsSync(outputPath)) {
   try {
-    const existing = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
-    if (existing && typeof existing.analyzed_by_model_capability === 'string') {
-      console.error(`Photo analysis already exists at ${outputPath} (capability: ${existing.analyzed_by_model_capability}). Skipping.`);
-      process.exit(0);
-    }
-    if (hasAnalysisContent(existing)) {
-      // capability는 아직 안 찍혔지만 내용이 들어 있다 = 진행 중인 분석이다.
-      // 덮어쓰지 않고 그대로 둔다 — 이어서 채우는 것이 맞다.
-      console.error(`Photo analysis in progress at ${outputPath} (analyzed_by_model_capability가 아직 null이지만 내용이 채워져 있습니다). Skipping.`);
-      console.error('  이어서 남은 사진을 Read/Edit으로 채우고, 끝나면 analyzed_by_model_capability를 세팅하세요.');
-      console.error('  처음부터 다시 만들려면 이 파일을 직접 지우고 재실행하세요.');
-      process.exit(0);
-    }
+    existingState = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
   } catch (err) {
     // 이 파일에는 비전 모델이 채운 scene_description 등이 들어 있을 수 있다.
     // 그냥 덮어쓰면 그 작업이 조용히 사라진다 (lib/session-state.js는 같은 상황에서
@@ -137,13 +135,56 @@ const photos = supported.map((p) => ({
   notable_objects: null,
 }));
 
+// --- 병합 ---
+// 키는 절대 경로. 같은 파일이 다른 상대 경로로 넘어와도 하나로 본다.
+const existingPhotos = existingState && Array.isArray(existingState.photos)
+  ? existingState.photos.filter((ph) => ph && typeof ph === 'object')
+  : [];
+const existingByPath = new Map(existingPhotos.map((ph) => [ph.path || ph.file, ph]));
+const incomingKeys = new Set(photos.map((ph) => ph.path));
+
+const merged = [];
+const added = [];
+for (const ph of photos) {
+  const prev = existingByPath.get(ph.path);
+  if (prev) merged.push(prev);            // 채워진 내용을 그대로 보존한다
+  else { merged.push(ph); added.push(ph.file); }
+}
+// 이번 호출에 없지만 파일에 있던 항목 — 지우지 않고 뒤에 붙인다.
+const kept = existingPhotos.filter((ph) => !incomingKeys.has(ph.path || ph.file));
+merged.push(...kept);
+
+const alreadyDone = existingState && typeof existingState.analyzed_by_model_capability === 'string';
+if (existingState && hasAnalysisContent(existingState) && added.length === 0) {
+  // 새로 추가할 사진이 없다 = 재실행이 아무것도 바꾸지 않는다. 그대로 둔다.
+  console.error(alreadyDone
+    ? `Photo analysis already exists at ${outputPath} (capability: ${existingState.analyzed_by_model_capability}). Skipping.`
+    : `Photo analysis in progress at ${outputPath} (capability는 아직 null이지만 내용이 채워져 있습니다). Skipping.`);
+  if (!alreadyDone) {
+    console.error('  이어서 남은 사진을 Read/Edit으로 채우고, 끝나면 analyzed_by_model_capability를 세팅하세요.');
+  }
+  console.error('  처음부터 다시 만들려면 이 파일을 직접 지우고 재실행하세요.');
+  process.exit(0);
+}
+
 const skeleton = {
   schema_version: 1,
-  analyzed_at: null,
-  analyzed_by_model_capability: null,
-  photos,
-  overall_impression: null,
+  analyzed_at: (existingState && existingState.analyzed_at) || null,
+  analyzed_by_model_capability: (existingState && existingState.analyzed_by_model_capability) || null,
+  photos: merged,
+  overall_impression: (existingState && existingState.overall_impression) || null,
 };
+
+if (added.length && existingState && hasAnalysisContent(existingState)) {
+  console.error(`기존 분석 ${merged.length - added.length - kept.length}건을 보존하고 새 사진 ${added.length}건을 추가했습니다: ${added.join(', ')}`);
+  if (alreadyDone) {
+    console.error(`  analyzed_by_model_capability가 "${existingState.analyzed_by_model_capability}"로 이미 찍혀 있습니다 — 추가된 사진을 채운 뒤 그대로 두세요.`);
+  }
+}
+if (kept.length) {
+  console.error(`Warning: 이번 호출에 없지만 파일에 있던 항목 ${kept.length}건을 그대로 남겼습니다: ${kept.map((ph) => ph.file).join(', ')}`);
+  console.error('  의도한 것이 아니라면 사진 목록을 확인하세요 (조용히 지우지 않습니다).');
+}
 
 const json = JSON.stringify(skeleton, null, 2);
 

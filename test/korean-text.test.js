@@ -239,3 +239,14 @@ test('번호 목록 접두사는 문장 경계가 아니다', () => {
   // 문장 끝의 숫자+마침표는 여전히 경계다 (뒤에 공백+내용)
   assert.equal(countSentences('가격은 12000. 비싸지 않았다.'), 2);
 });
+
+test('번호 목록 마스킹은 과소 계산을 만들지 않는다 (개수로 판정)', () => {
+  // 목록 접두사와 "숫자로 끝난 문장"은 문법적으로 같다. 무조건 마스킹하면
+  // 진짜 문장 경계를 먹어 **과소 계산**이 되고, text-after-figure(error,
+  // 우회 불가)가 정당한 초안을 막는다. 한 조각에 두 개 이상일 때만 목록으로 본다.
+  assert.equal(countSentences('총 15. 다음 문장이다.'), 2, '진짜 문장 경계를 먹음');
+  assert.equal(countSentences('1. 첫째 2. 둘째'), 1, '목록이 문장으로 셈됨');
+  assert.equal(countSentences('메뉴는 이렇다. 1. 파스타 2. 리조또'), 2);
+  assert.equal(countSentences('방문일은 2026. 5. 10. 이었다.'), 1, '한국식 날짜 표기');
+  assert.equal(countSentences('가격은 12.5만원이었다.'), 1);
+});
