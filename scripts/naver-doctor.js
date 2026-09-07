@@ -18,7 +18,8 @@ function printUsage() {
   console.log('');
   console.log('  --headless-smoke  headed 창 대신 headless로만 브라우저 기동을 확인 (CI/원격용)');
   console.log('');
-  console.log('종료 코드: 0=전부 통과, 10=playwright/브라우저 없음, 11=세션 없음/만료, 17=headed 불가, 1=기타');
+  console.log('종료 코드: 0=전부 통과(발행 가능), 10=playwright/브라우저 없음, 11=세션 없음/만료,');
+  console.log('           12=셀렉터 실물 미검증, 17=headed 불가, 1=기타');
   process.exit(1);
 }
 
@@ -48,7 +49,9 @@ async function main() {
     pw = requirePlaywright();
     record('playwright 모듈', true, `v${require('playwright/package.json').version}`);
   } catch (err) {
-    record('playwright 모듈', false, 'npm install --include=optional');
+    // 원인을 버리고 항상 "설치하라"고만 하면, 이미 설치됐는데 로드가 깨진 경우
+    // (ABI 불일치 등) 사용자가 같은 명령을 반복하며 원인을 영영 못 본다.
+    record('playwright 모듈', false, `${err.message.split('\n')[0]} — npm install --include=optional`);
     fail(NAVER_EXIT.MISSING_PLAYWRIGHT);
   }
 
@@ -66,7 +69,8 @@ async function main() {
   if (headlessSmoke) {
     record('디스플레이 (headed 가능)', true, '--headless-smoke로 건너뜀');
   } else {
-    record('디스플레이 (headed 가능)', d.ok, d.ok ? d.via : 'DISPLAY/WAYLAND_DISPLAY/X 소켓 없음 — WSLg 확인 필요');
+    record('디스플레이 (headed 가능)', d.ok, d.ok ? d.via
+      : `DISPLAY/WAYLAND_DISPLAY 없음${d.socketOnly ? ' (X 소켓만 있음 — export DISPLAY=:0 시도)' : ''} — WSLg 확인 필요`);
     if (!d.ok) fail(NAVER_EXIT.NO_DISPLAY);
   }
 
@@ -86,8 +90,17 @@ async function main() {
       smokeOk = true;
       record(`브라우저 기동 (${headlessSmoke ? 'headless' : 'headed'})`, true);
     } catch (err) {
-      record(`브라우저 기동 (${headlessSmoke ? 'headless' : 'headed'})`, false, err.message.split('\n')[0]);
-      fail(headlessSmoke ? NAVER_EXIT.MISSING_PLAYWRIGHT : NAVER_EXIT.NO_DISPLAY);
+      // exit 코드를 모드가 아니라 **원인**으로 정한다. 시스템 라이브러리 결손을
+      // 17(headed 불가 → WSLg 확인)로 보내면 실제 조치(install-deps)와 무관한
+      // 안내가 나간다.
+      const msg = err.message.split('\n')[0];
+      const missingLib = /error while loading shared libraries|cannot open shared object|Host system is missing dependencies|\.so[.0-9]*: cannot open/i.test(err.message);
+      const noDisplay = /Missing X server|cannot open display|DISPLAY|Target page, context or browser has been closed/i.test(err.message);
+      record(`브라우저 기동 (${headlessSmoke ? 'headless' : 'headed'})`, false, msg
+        + (missingLib ? ' — sudo npx playwright install-deps chromium' : ''));
+      if (missingLib) fail(NAVER_EXIT.MISSING_PLAYWRIGHT);
+      else if (noDisplay && !headlessSmoke) fail(NAVER_EXIT.NO_DISPLAY);
+      else fail(headlessSmoke ? NAVER_EXIT.MISSING_PLAYWRIGHT : NAVER_EXIT.NO_DISPLAY);
     }
   }
 
@@ -96,7 +109,13 @@ async function main() {
   record('NAVER_BLOG_ID', Boolean(blogId), blogId || '.env에 설정 필요 (blog.naver.com/{여기})');
   if (!blogId) fail(NAVER_EXIT.GENERAL);
 
-  // 6. 프로필 + 세션 유효성
+  // 6. 공개 발행 안전장치 상태 (실패가 아니라 현재 상태 보고)
+  const allowPublic = process.env.NAVER_ALLOW_PUBLIC === '1';
+  record('공개 발행 허용 (NAVER_ALLOW_PUBLIC)', true, allowPublic
+    ? '1 — --visibility public 사용 가능'
+    : '미설정 — --visibility public은 exit 18로 거부됩니다 (기본 private는 정상 동작)');
+
+  // 7. 프로필 + 세션 유효성
   const dir = profileDir();
   const profileExists = fs.existsSync(dir);
   if (!profileExists) {
@@ -119,14 +138,16 @@ async function main() {
     }
   }
 
-  // 7. 셀렉터 확인 여부 — 경고일 뿐 실패는 아니다
+  // 8. 셀렉터 확인 여부 — **실패로 센다.**
+  // 예전에는 경고만 하고 exit 0이었는데, 셀렉터 미검증 상태에서 실제 발행 경로는
+  // 무조건 exit 12로 죽는다. `npm run naver:doctor && npm run naver:draft` 체이닝에서
+  // doctor가 게이트 역할을 전혀 못 했다.
   record('셀렉터 실물 확인', isVerified(), verificationStatus());
+  if (!isVerified()) fail(NAVER_EXIT.SELECTOR);
 
   console.log('');
   if (firstFailure === null) {
-    console.log(isVerified()
-      ? '전부 통과. 네이버 발행을 진행할 수 있습니다.'
-      : '기동 조건은 통과했습니다. 다만 셀렉터가 미검증이므로 `npm run naver:inspect`를 먼저 실행하세요.');
+    console.log('전부 통과. 네이버 발행을 진행할 수 있습니다.');
     return;
   }
   console.log(`가장 먼저 조치할 항목의 exit 코드: ${firstFailure}`);

@@ -155,3 +155,81 @@ test('summarizeBlocks', () => {
     total: 4, headings: 1, paragraphs: 2, images: 1, chars: '가나다.제목라마.'.length,
   });
 });
+
+// --- 4차 리뷰에서 확인된 결함들의 회귀 고정 ---
+
+test('htmlToBlocks — <br>만 줄바꿈이고 HTML 소스 줄바꿈은 공백이다', () => {
+  // lib/html-parse.js가 BR_SENTINEL을 도입한 이유가 이 파일에서만 무효화돼 있었다.
+  // 초안이 한 번이라도 pretty-print되면 소스 줄바꿈이 전부 하드 개행으로
+  // 에디터에 타이핑된다.
+  assert.equal(htmlToBlocks('<p>첫 줄<br>둘째 줄</p>').blocks[0].text, '첫 줄\n둘째 줄');
+  assert.equal(htmlToBlocks('<p>첫 줄\n둘째 줄</p>').blocks[0].text, '첫 줄 둘째 줄');
+  assert.equal(htmlToBlocks('<p>첫 줄\n  들여쓰기</p>').blocks[0].text, '첫 줄 들여쓰기');
+});
+
+test('htmlToBlocks — <a> 안팎의 <br>이 같게 처리된다', () => {
+  assert.equal(
+    htmlToBlocks('<p><a href="https://x.com">가<br>나</a></p>').blocks[0].text,
+    '가\n나 (https://x.com)',
+  );
+});
+
+test('htmlToBlocks — 엔티티는 위치와 무관하게 정확히 한 번 디코드된다', () => {
+  // 예전에는 <a> 라벨만 두 번 디코드돼, 같은 소스 텍스트가 <a> 안에서는 `<`,
+  // 밖에서는 `&lt;`가 됐다 (커밋 a1f6bbf가 splitSentences에서 고친 것과 같은 버그).
+  const r = htmlToBlocks('<p><a href="https://x.com?a=1&amp;b=2">&amp;lt;가</a> &amp;lt;나</p>');
+  assert.equal(r.blocks[0].text, '&lt;가 (https://x.com?a=1&b=2) &lt;나');
+  // links의 href도 본문에 박히는 값과 같은 형태여야 한다
+  assert.deepEqual(r.links, [{ text: '&lt;가', href: 'https://x.com?a=1&b=2' }]);
+});
+
+test('htmlToBlocks — alt와 caption이 같은 기준으로 디코드된다', () => {
+  const img = htmlToBlocks(
+    '<figure><img src="a.webp" alt="카페 &amp; 베이커리"><figcaption>카페 &amp; 베이커리</figcaption></figure>',
+  ).blocks[0];
+  assert.equal(img.alt, '카페 & 베이커리');
+  assert.equal(img.caption, '카페 & 베이커리');
+});
+
+test('htmlToBlocks — 엔티티로 만든 NUL이 에디터 페이로드에 실리지 않는다', () => {
+  // parseHtml이 원본의 리터럴 NUL을 지우지만, decodeEntities는 파싱 **이후**에
+  // `&#0;`로 NUL을 다시 만들어낸다. 그 값이 네이버 에디터에 타이핑될 뻔했다.
+  const NUL = String.fromCharCode(0);
+  for (const html of ['<p>가&#0;나</p>', '<h2>제&#x0;목</h2>', '<p><a href="https://x.com">가&#0;나</a></p>']) {
+    const text = htmlToBlocks(html).blocks[0].text;
+    assert.ok(!text.includes(NUL), `NUL 누출: ${html}`);
+  }
+  assert.equal(summarizeBlocks(htmlToBlocks('<p>가&#0;나</p>').blocks).chars, 2);
+});
+
+test('htmlToBlocks — <a> 안에서도 화이트리스트가 적용된다', () => {
+  // 예전에는 <a> 라벨만 textOf를 써서 화이트리스트를 통째로 우회했다.
+  // <script> 본문이 본문 텍스트로 주입되고 <img>는 조용히 사라졌다.
+  assert.throws(
+    () => htmlToBlocks('<p><a href="https://x.com"><script>alert(1)</script>label</a></p>'),
+    /허용되지 않은 요소/,
+  );
+  assert.throws(
+    () => htmlToBlocks('<p><a href="https://x.com"><img src="https://h/p.webp"></a></p>'),
+    /허용되지 않은 요소/,
+  );
+  assert.throws(
+    () => htmlToBlocks('<p><a href="https://x.com"><table><tr><td>표</td></tr></table></a></p>'),
+    /허용되지 않은 요소/,
+  );
+});
+
+test('htmlToBlocks — figure/ul이 허용 밖 자식을 조용히 버리지 않는다', () => {
+  assert.throws(
+    () => htmlToBlocks('<figure><img src="a.webp"><figcaption>캡</figcaption><p>숨은문단</p></figure>'),
+    /<figure> 안에 허용되지 않은 요소/,
+  );
+  assert.throws(
+    () => htmlToBlocks('<figure><img src="a.webp"><figcaption>하나</figcaption><figcaption>둘</figcaption></figure>'),
+    /figcaption>이 2개/,
+  );
+  assert.throws(
+    () => htmlToBlocks('<ul><li>가</li><div>숨음</div></ul>'),
+    /<li>가 아닌 요소/,
+  );
+});
