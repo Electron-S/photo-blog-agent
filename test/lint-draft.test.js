@@ -447,23 +447,53 @@ test('업로드 결과와 파일 경로로만 매칭되면 표면화한다 (호�
     + `<img src="${src}" width="1024" height="768" loading="lazy" alt="가게 외관" `
     + 'style="max-width:100%;height:auto;">'
     + '<figcaption>해질녘에 본 가게 앞 풍경입니다</figcaption></figure>';
-  const uploadResult = {
+  // **픽스처는 실제 산출물 형태여야 한다.** 처음에는 `{index, webpUrl, width,
+  // height}`만 넣었는데, upload-images.js는 `webpPath`(로컬 절대 경로)를 모든
+  // 항목에 무조건 내보낸다. 그 필드가 있으면 예전 hostOf 비교가 무조건
+  // "같은 호스트"로 판정해 이 규칙이 **실제로는 한 번도 발동하지 않았다** —
+  // 픽스처가 구멍을 정답으로 고정한 셈이다.
+  const LOCAL = '/home/x/photo-blog-agent/tmp/assets/2026-05-10-abc/photo-01.webp';
+  const MINE = 'https://mine.github.io/posts/2026-05-10-abc/photo-01.webp';
+  const realShape = {
     images: [{
       index: 1,
-      webpUrl: 'https://mine.github.io/posts/2026-05-10-abc/photo-01.webp',
+      originalPath: '/home/x/photos/IMG_1234.jpg',
+      webpPath: LOCAL,
+      webpUrl: MINE,
+      url: MINE,
       width: 1024,
       height: 768,
+      originalBytes: 3_200_000,
+      webpBytes: 140_000,
+      oversize: false,
+      fallbackUsed: false,
+      watermarkApplied: true,
+      orientationApplied: true,
+      dimensionsError: null,
+      compressionError: null,
+      contractError: null,
+      verificationError: null,
+      error: null,
     }],
   };
-  const warnsFor = (src) => lintDraftHtml(FIG(src), { uploadResult })
+  const warnsFor = (src, uploadResult = realShape) => lintDraftHtml(FIG(src), { uploadResult })
     .warnings.map((w) => w.rule);
 
-  assert.ok(!warnsFor('https://mine.github.io/posts/2026-05-10-abc/photo-01.webp')
-    .includes('upload-match-by-filename'), '같은 호스트인데 경고');
+  assert.ok(!warnsFor(MINE).includes('upload-match-by-filename'), '같은 호스트인데 경고');
   assert.ok(warnsFor('https://old.example/posts/2026-05-10-abc/photo-01.webp')
-    .includes('upload-match-by-filename'), '호스트가 다른데 조용함');
+    .includes('upload-match-by-filename'), '호스트가 다른데 조용함 (webpPath가 판정을 삼킴)');
+
+  // webpUrl만 있는 축약 형태에서도 같아야 한다
+  assert.ok(warnsFor('https://old.example/posts/2026-05-10-abc/photo-01.webp',
+    { images: [{ index: 1, webpUrl: MINE, width: 1024, height: 768 }] })
+    .includes('upload-match-by-filename'));
+
   // 상대 경로는 호스트를 비교할 수 없으므로 관용 매칭을 유지한다 (경고 없음)
   assert.ok(!warnsFor('/posts/2026-05-10-abc/photo-01.webp')
+    .includes('upload-match-by-filename'));
+  // --local-only 산출물은 URL이 없으므로 비교 대상이 없다
+  assert.ok(!warnsFor('https://old.example/posts/2026-05-10-abc/photo-01.webp',
+    { images: [{ index: 1, webpPath: LOCAL, webpUrl: null, url: null, width: 1024, height: 768 }] })
     .includes('upload-match-by-filename'));
   // --upload-result가 없으면 이 규칙은 아예 돌지 않는다
   assert.deepEqual(
@@ -471,4 +501,30 @@ test('업로드 결과와 파일 경로로만 매칭되면 표면화한다 (호�
       .filter((w) => w.rule === 'upload-match-by-filename'),
     [],
   );
+});
+
+test('작성 시점 표현을 열거가 아니라 근접 매칭으로 잡는다', () => {
+  // CLAUDE.md의 절대 규칙을 강제하는 유일한 게이트인데, 리터럴 조합 3개여서
+  // 조사 하나만 끼거나 어미가 달라도 전부 통과했다.
+  const hit = (text) => lintDraftHtml(`<p>${text}</p>`, {}).errors
+    .some((e) => e.rule === 'no-writing-date-expression');
+
+  for (const bad of [
+    '오늘 다녀왔습니다', '오늘은 다녀왔습니다', '오늘 아침 다녀왔습니다',
+    '오늘 오랜만에 방문했습니다', '오늘 가봤습니다', '오늘 들러봤습니다',
+    '어제 다녀왔습니다', '조금 전에 다녀왔습니다', '이번 주말에 다녀왔습니다',
+    '방금 다녀왔어요', '아까 갔다 왔습니다', '지금 방문 중입니다',
+  ]) {
+    assert.equal(hit(bad), true, `놓침: ${bad}`);
+  }
+
+  // 정당한 표현은 막지 않는다 — 이 규칙이 원래 피하려던 오탐이다
+  for (const ok of [
+    '방금 튀겨낸 치킨텐더가 나왔다', '막 구운 빵 냄새가 좋았다',
+    '지난 5월 10일에 다녀왔다', '오늘 같은 날씨였으면 좋았겠다',
+    '어제오늘 이야기가 아니다', '오늘의 메뉴는 파스타였다',
+    '지난달에 방문했던 곳이다', '5월 초에 갔던 카페다',
+  ]) {
+    assert.equal(hit(ok), false, `오탐: ${ok}`);
+  }
 });

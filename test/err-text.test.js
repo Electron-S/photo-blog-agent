@@ -9,7 +9,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {
-  errCodeTag, errExitCode, errFull, errStack, errText,
+  errCodeTag, errExitCode, errFull, errStack, errText, reportFatal,
 } = require('../lib/err-text');
 
 const THROWN = [
@@ -106,7 +106,11 @@ function findMessageReads(src) {
   const hits = [];
   const push = (name, kind, prop, view, index) => {
     const line = view.slice(0, index).split('\n').length;
-    const key = `${line}:${name}:${prop}:${kind}`;
+    // dedupe 키에 **열 위치**를 넣는다. 줄 단위로만 접으면 같은 줄의 위반 2건이
+    // 1건으로 보고된다 (`log(e.message, e.stack)`은 prop이 달라 괜찮지만
+    // `log(e.message + e.message)`는 접혔다).
+    const lineStart = view.lastIndexOf('\n', index - 1) + 1;
+    const key = `${line}:${index - lineStart}:${name}:${prop}:${kind}`;
     if (seen.has(key)) return;
     seen.add(key);
     hits.push({ name, kind, prop, line });
@@ -116,11 +120,14 @@ function findMessageReads(src) {
     const n = name.replace(/[$]/g, '\\$');
     for (const prop of GUARDED_PROPS) {
       // [정규식, 종류, 문자열을 남긴 뷰에서 볼 것인가]
+      // 옵셔널 대괄호(`err?.["message"]`)와 **여러 줄** 구조분해까지 본다 —
+      // 둘 다 실측으로 놓치던 형태다. 구조분해에서 [^}] 로 개행을 허용하되
+      // 세미콜론·중괄호는 제외해 다른 블록까지 삼키지 않게 한다.
       const patterns = [
         [`${n}\\s*\\.\\s*${prop}\\b`, `.${prop}`, false],
         [`${n}\\s*\\?\\.\\s*${prop}\\b`, `?.${prop}`, false],
-        [`${n}\\s*\\[\\s*['"\`]${prop}`, `['${prop}']`, true],
-        [`\\{[^}\\n]*\\b${prop}\\b[^}\\n]*\\}\\s*=\\s*${n}\\b`, `구조분해(${prop})`, false],
+        [`${n}\\s*\\??\\.?\\[\\s*['"\`]${prop}`, `['${prop}']`, true],
+        [`\\{[^{};]*\\b${prop}\\b[^{};]*\\}\\s*=\\s*${n}\\b`, `구조분해(${prop})`, false],
       ];
       for (const [pat, kind, keepStrings] of patterns) {
         // 대괄호 접근은 문자열을 남긴 뷰에서만 보이고, 나머지는 어느 뷰에서든
@@ -132,9 +139,13 @@ function findMessageReads(src) {
             // 대입(감싸기)은 읽기가 아니다: `err.message = ...`
             if (!keepStrings && /^\s*=[^=]/.test(after)) continue;
             if (keepStrings && /^['"`]\s*\]\s*=[^=]/.test(after)) continue;
-            // `err && err.response` 처럼 같은 표현 안에서 null을 이미 걸렀으면 안전하다.
+            // `err && err.response` 처럼 **바로 앞에서** null을 걸렀으면 안전하다.
+            // window를 넓게 잡으면 `foo(err && 1, err.message)`처럼 무관한 위치의
+            // `err &&`가 통과 근거가 된다 (실측). 인자 구분자(`,`)와 논리 연산자
+            // 경계까지만 허용한다.
             const before = view.slice(Math.max(0, m.index - 60), m.index);
-            if (new RegExp(`${n}\\s*&&[^;{}]*$`).test(before)) continue;
+            if (new RegExp(`${n}\\s*&&\\s*$`).test(before)) continue;
+            if (new RegExp(`${n}\\s*&&\\s*(?:typeof\\s+)?[\\w$.?[\\]'"\`]*\\s*(?:!==?|===?|&&)\\s*[^,;{}()]*$`).test(before)) continue;
             push(name, kind, prop, view, m.index);
           }
         }
@@ -193,6 +204,10 @@ test('스캔이 실제로 위반을 잡는지 (스캔의 자기 검증)', () => 
     'p.catch(function (e) { log(e.message); });',
     // 문자열 안의 주석 마커가 뒤를 가리지 않는다
     'const open = "/*"; try { x(); } catch (e) { log(e.message); } const close = "*/";',
+    // 9차 리뷰가 찾은 미탐 3종
+    'try { x(); } catch (e) { log(e?.["message"]); }',
+    'try { x(); } catch (e) {\n  const {\n    message,\n  } = e;\n  log(message);\n}',
+    'try { x(); } catch (e) { foo(e && 1, e.message); }',
   ];
   for (const bad of BAD) {
     assert.ok(findMessageReads(bad).length > 0, `놓침: ${bad}`);
@@ -205,12 +220,36 @@ test('스캔이 실제로 위반을 잡는지 (스캔의 자기 검증)', () => 
     'try { x(); } catch (err) { err.message = `wrapped: ${errFull(err)}`; throw err; }',
     'try { x(); } catch (err) { err.exitCode = 7; throw err; }',
     '// catch (e) { e.message }  ← 주석은 설명이다',
-    'try { x(); } catch (err) { if (err && err.response) keep(err.response); }',
+    'try { x(); } catch (err) { const r = errResponse(err); if (r) keep(r); }',
     'p.catch((err) => process.exit(reportFatal(err, "x:")));',
+    // 같은 표현 안에서 바로 앞을 가드한 형태는 통과시킨다 (블록 스코프는 못 본다).
+    'try { x(); } catch (err) { const s = err && err.stack; log(s); }',
   ];
   for (const good of GOOD) {
     assert.deepEqual(findMessageReads(good), [], `오탐: ${good}`);
   }
+});
+
+test('스캔의 한계를 명시한다 (스코프 분석은 하지 않는다)', () => {
+  // 스캔은 파일 단위로 바인딩 이름을 모아 파일 전체를 grep한다. 스코프 분석을
+  // 하지 않으므로 아래 두 형태를 위반으로 센다. **의도된 트레이드오프다**:
+  //   (a) 파라미터명이 error/err인 함수의 프로퍼티 읽기 — 위험은 동일하다
+  //       (호출자가 null을 넘기면 같은 자리에서 죽는다). 헬퍼를 쓰는 것이 맞다.
+  //   (b) catch 바인딩과 이름이 겹치는 무관한 변수 — 이름을 바꾸면 된다.
+  // 스코프 분석을 넣으려면 파서가 필요하고, 그건 "관대한 검사"로 가는 길이다.
+  // 이 저장소가 아홉 라운드에 걸쳐 배운 것은 그 반대다 — 놓치는 것보다 과하게
+  // 잡는 편이 안전하다. 그래서 이 동작을 **테스트로 못박아 결정으로 남긴다.**
+  assert.equal(
+    findMessageReads('function f(error) { return error.message; }\ntry { x(); } catch (error) { log(errFull(error)); }').length,
+    1,
+    '파라미터 error의 읽기를 세지 않게 되면 그건 스캔이 느슨해진 것이다',
+  );
+  assert.equal(
+    findMessageReads('try { x(); } catch (e) { log(errFull(e)); }\nconst e = { message: 1 }; log(e.message);').length,
+    1,
+  );
+  // 같은 줄의 위반 2건은 2건으로 센다 (dedupe가 접지 않는다)
+  assert.equal(findMessageReads('try{x();}catch(e){log(e.message + e.message);}').length, 2);
 });
 
 test('스캔이 줄 번호를 정확히 보고한다', () => {
@@ -255,4 +294,23 @@ test('errStack / errExitCode — 최상위 핸들러가 non-Error에서도 exit 
   assert.equal(errStack(hostile), '');
   assert.equal(errExitCode(hostile, 4), 4);
   assert.equal(errCodeTag(hostile), '');
+});
+
+test('errExitCode는 0을 exit 코드로 받지 않는다', () => {
+  // 실패 경로 전용이므로 exitCode === 0을 그대로 돌려주면 치명적 실패가
+  // process.exit(0)으로 **성공 보고**된다. 예전 표현 `errExitCode(err) || 1`이
+  // 우연히 막고 있던 것을 헬퍼로 옮기면서 잃었다.
+  assert.equal(errExitCode({ exitCode: 0 }), 1);
+  assert.equal(errExitCode({ exitCode: 0 }, 5), 5);
+  assert.equal(errExitCode({ exitCode: 7 }), 7);
+  // reportFatal도 0을 돌려주지 않는다 (그 반환값이 process.exit로 간다)
+  const origError = console.error;
+  console.error = () => {};
+  try {
+    assert.notEqual(reportFatal({ exitCode: 0, message: 'boom' }, 'x:'), 0);
+    assert.equal(reportFatal({ exitCode: 7, message: 'boom' }, 'x:'), 7);
+    assert.equal(reportFatal(null, 'x:'), 1);
+  } finally {
+    console.error = origError;
+  }
 });

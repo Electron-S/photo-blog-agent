@@ -166,6 +166,26 @@ async function main() {
     printUsage();
   }
 
+  const slug = get('--slug');
+  // **필수이고, 정규형이어야 한다.** 예전에는 생략하면 slug가 리터럴 'post'로
+  // 고정되어 같은 날짜의 모든 글이 같은 폴더를 공유했다 — 이미 발행된 글의
+  // photo-NN.webp를 원격에서 제자리 덮어쓰기 한다. usage는 "첫 번째 이미지
+  // 파일명에서 생성"이라고 적혀 있었지만 그런 코드 경로가 없었다.
+  // 파일명 유도는 일부러 하지 않는다 — 넘긴 파일 순서에 따라 폴더가 달라져
+  // CLAUDE.md가 요구하는 멱등성이 깨진다. 사람이 한 번 정하는 것이 맞다.
+  //
+  // 검증은 발행(publish-post)·세션(session-state)과 **같은 SLUG_RE**를 쓰고,
+  // 추가로 slugify가 손대지 않는 값만 받는다. 그러지 않으면 `trip-경복궁`처럼
+  // 부분만 사라지는 slug가 통과해 서로 다른 글이 같은 폴더로 수렴한다.
+  const slugError = canonicalSlugError(slug);
+  if (slugError) {
+    console.error(`Error: --slug ${slugError}`);
+    console.error('  slug은 폴더 경로 posts/{date}-{hash}의 유일한 식별자입니다.');
+    console.error('  잘못되면 같은 날짜의 다른 글과 같은 폴더를 써서 이미 발행된 이미지를 덮어씁니다.');
+    console.error('  예: --slug seokchon-lake-spring (세션 내 한 번 정하고 계속 사용)');
+    process.exit(1);
+  }
+
   const metadata = readMetadataPrimaryDate(get('--metadata'));
   const explicitDate = validateExplicitDate(get('--date'));
   const today = new Date().toISOString().slice(0, 10);
@@ -195,25 +215,6 @@ async function main() {
     process.exit(5);
   }
 
-  const slug = get('--slug');
-  // **필수이고, 정규형이어야 한다.** 예전에는 생략하면 slug가 리터럴 'post'로
-  // 고정되어 같은 날짜의 모든 글이 같은 폴더를 공유했다 — 이미 발행된 글의
-  // photo-NN.webp를 원격에서 제자리 덮어쓰기 한다. usage는 "첫 번째 이미지
-  // 파일명에서 생성"이라고 적혀 있었지만 그런 코드 경로가 없었다.
-  // 파일명 유도는 일부러 하지 않는다 — 넘긴 파일 순서에 따라 폴더가 달라져
-  // CLAUDE.md가 요구하는 멱등성이 깨진다. 사람이 한 번 정하는 것이 맞다.
-  //
-  // 검증은 발행(publish-post)·세션(session-state)과 **같은 SLUG_RE**를 쓰고,
-  // 추가로 slugify가 손대지 않는 값만 받는다. 그러지 않으면 `trip-경복궁`처럼
-  // 부분만 사라지는 slug가 통과해 서로 다른 글이 같은 폴더로 수렴한다.
-  const slugError = canonicalSlugError(slug);
-  if (slugError) {
-    console.error(`Error: --slug ${slugError}`);
-    console.error('  slug은 폴더 경로 posts/{date}-{hash}의 유일한 식별자입니다.');
-    console.error('  잘못되면 같은 날짜의 다른 글과 같은 폴더를 써서 이미 발행된 이미지를 덮어씁니다.');
-    console.error('  예: --slug seokchon-lake-spring (세션 내 한 번 정하고 계속 사용)');
-    process.exit(1);
-  }
   const workDir = get('--work-dir');
   const outputPath = get('--output');
   const localOnly = has('--local-only');

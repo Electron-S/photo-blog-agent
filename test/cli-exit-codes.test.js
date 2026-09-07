@@ -64,14 +64,25 @@ test('lint-draft: 우회 플래그는 존재하지 않는다', () => {
 });
 
 test('upload-images: 날짜 출처가 없으면 네트워크 전에 exit 5', () => {
-  const r = run('upload-images.js', ['nonexistent.jpg']);
+  // slug은 순수 검증이라 날짜 해석보다 먼저 온다 — 정상 slug를 주고 날짜만 없앤다.
+  const r = run('upload-images.js', ['nonexistent.jpg', '--slug', 'ok-slug']);
   assert.equal(r.status, 5, r.stdout + r.stderr);
   assert.match(r.stderr, /멱등성/);
 });
 
+test('upload-images: 값싼 순수 검증(slug)이 날짜 해석보다 먼저 온다', () => {
+  // 둘 다 업로드 전이라 되돌릴 수 없는 작업은 없지만, 인자 하나가 잘못됐을 때
+  // 그 인자를 가리켜야 한다. 예전에는 slug 오류가 exit 5(날짜 출처 미상)로 보고됐다.
+  const r = run('upload-images.js', ['a.jpg', '--slug', 'My_Post']);
+  assert.equal(r.status, 1, `status=${r.status}`);
+  assert.match(r.stderr, /--slug/);
+  assert.doesNotMatch(r.stderr, /멱등성/, 'slug 오류가 날짜 진단으로 보고됨');
+});
+
 test('upload-images: --date 형식 오류는 exit 1', () => {
-  assert.equal(run('upload-images.js', ['a.jpg', '--date', '2026-13-99']).status, 1);
-  assert.equal(run('upload-images.js', ['a.jpg', '--date', '2026-2-3']).status, 1);
+  const withSlug = (extra) => run('upload-images.js', ['a.jpg', '--slug', 'ok-slug', ...extra]);
+  assert.equal(withSlug(['--date', '2026-13-99']).status, 1);
+  assert.equal(withSlug(['--date', '2026-2-3']).status, 1);
 });
 
 test('upload-images: 인자 없이 실행하면 usage를 낸다', () => {
@@ -274,4 +285,50 @@ test('naver:doctor — 실행되고 항목별 결과를 낸다', () => {
   // 게이트 미통과 상태에서 exit 0이 나오면 doctor가 게이트 역할을 잃은 것이다.
   const { isVerified } = require('../lib/naver-selectors');
   if (!isVerified()) assert.notEqual(r.status, 0, 'VERIFIED_AT=null인데 doctor가 통과로 끝났다');
+});
+
+test('analyze-photos: 진행 중인 분석을 덮어쓰지 않는다 (핸드오프 보호)', (t) => {
+  // 워크플로우는 photos[]를 먼저 채우고 **그 다음** capability를 세팅하라고
+  // 지시한다. 그래서 가장 흔한 중단 상태가 "capability는 null인데
+  // scene_description은 채워짐"이고, 예전 판정(capability가 문자열인가)은
+  // 그걸 빈 골격으로 보고 백업도 경고도 없이 덮어썼다.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-ap3-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const img = path.join(dir, 'x.jpg');
+  fs.writeFileSync(img, 'x', 'utf8');
+  const out = path.join(dir, 'pa.json');
+
+  assert.equal(run('analyze-photos.js', [img, '--output', out]).status, 0);
+
+  // 진행 중 상태를 만든다 (capability는 아직 null)
+  const partial = JSON.parse(fs.readFileSync(out, 'utf8'));
+  partial.photos[0].analysis_status = 'completed';
+  partial.photos[0].scene_description = '석촌호수 벚꽃길, 해질녘';
+  partial.photos[0].people_count = 12;
+  partial.overall_impression = '봄 산책';
+  fs.writeFileSync(out, JSON.stringify(partial), 'utf8');
+
+  const again = run('analyze-photos.js', [img, '--output', out]);
+  assert.equal(again.status, 0);
+  assert.match(again.stderr, /in progress|Skipping/);
+  const after = JSON.parse(fs.readFileSync(out, 'utf8'));
+  assert.equal(after.photos[0].scene_description, '석촌호수 벚꽃길, 해질녘',
+    '진행 중인 비전 분석이 덮어써짐');
+  assert.equal(after.photos[0].people_count, 12);
+  assert.equal(after.overall_impression, '봄 산책');
+
+  // 빈 골격은 그대로 덮어쓸 수 있어야 한다 (재실행이 막히면 안 된다)
+  fs.writeFileSync(out, JSON.stringify({
+    schema_version: 1,
+    analyzed_at: null,
+    analyzed_by_model_capability: null,
+    photos: [{
+      file: 'x.jpg', path: img, analysis_status: 'pending', scene_description: null,
+      text_visible: null, people_count: null, dominant_colors: null, notable_objects: null,
+    }],
+    overall_impression: null,
+  }), 'utf8');
+  const fresh = run('analyze-photos.js', [img, '--output', out]);
+  assert.equal(fresh.status, 0);
+  assert.match(fresh.stderr, /skeleton saved/);
 });

@@ -207,3 +207,35 @@ test('splitSentences — 엔티티를 두 번 디코드하지 않는다', () => 
   // 한 번 디코드는 정상
   assert.deepEqual(splitSentences('a &amp; b 하나.'), ['a & b 하나.']);
 });
+
+// --- 9차 리뷰 회귀 ---
+
+test('URL 마스킹이 문장 종결 마침표를 삼키지 않는다', () => {
+  // `\S+`로 URL을 잡으면 종결 마침표까지 마스킹돼 두 문장이 하나로 합쳐진다.
+  // text-after-figure는 error 등급이고 **우회 플래그가 없으므로**, CLAUDE.md와
+  // visit-research.md가 지시한 "공식 홈페이지 링크는 마무리 단락에 배치"를
+  // 지킨 초안이 exit 8로 차단됐다.
+  assert.equal(countSentences('공식 홈페이지는 https://www.example.com/info. 주차는 무료였다.'), 2);
+  assert.equal(countSentences('자세한 메뉴는 www.example.co.kr/menu. 가격은 착한 편이었다.'), 2);
+  assert.equal(countSentences('https://x.com/a?b=1&c=2 를 참고. 끝.'), 2);
+  assert.deepEqual(
+    splitSentences('공식 홈페이지는 https://www.example.com/info. 주차는 무료였다.'),
+    ['공식 홈페이지는 https://www.example.com/info.', '주차는 무료였다.'],
+  );
+
+  // URL 안의 마침표는 여전히 경계가 아니다 (뒤에 공백이 없다)
+  assert.equal(countSentences('링크는 https://example.com/a.html 였다.'), 1);
+  assert.equal(countSentences('파일은 photo-01.webp 이다.'), 1);
+  assert.equal(countSentences('사이트는 www.example.co.kr 이다.'), 1);
+});
+
+test('번호 목록 접두사는 문장 경계가 아니다', () => {
+  // 마스킹하지 않으면 번호만 붙여도 "이미지 다음 2문장" 요건이 충족돼
+  // text-after-figure가 우회된다 (위 URL 오탐과 같은 결함의 반대쪽).
+  assert.equal(countSentences('1. 첫째 2. 둘째'), 1);
+  assert.equal(countSentences('메뉴는 이렇다. 1. 파스타 2. 리조또'), 2);
+  // 소수점·버전은 원래대로
+  assert.equal(countSentences('가격은 12.5만원이었다.'), 1);
+  // 문장 끝의 숫자+마침표는 여전히 경계다 (뒤에 공백+내용)
+  assert.equal(countSentences('가격은 12000. 비싸지 않았다.'), 2);
+});

@@ -56,12 +56,42 @@ if (!outputPath) {
   printUsage();
 }
 
+// 골격 이외의 내용이 하나라도 들어 있는지 — "이 파일에 사람(모델)의 작업이
+// 담겼는가"를 판정한다.
+//
+// **판정 기준이 `analyzed_by_model_capability`가 문자열인지가 아니어야 한다.**
+// 워크플로우는 모델에게 photos[]를 Edit으로 먼저 채우고 **그 다음** 최상위
+// capability를 세팅하라고 지시한다. 그래서 가장 흔한 중단 상태가
+// "capability는 null인데 scene_description은 채워짐"이고, 예전 판정은 그걸
+// 빈 골격으로 보고 **백업도 경고도 없이 덮어썼다** (실측 확인).
+// CLAUDE.md가 이 파일을 "모델 간 핸드오프 지점"으로 규정하는데, 핸드오프 대상
+// 데이터가 exit 0으로 사라지는 셈이었다.
+function hasAnalysisContent(obj) {
+  if (!obj || typeof obj !== 'object') return false;
+  if (typeof obj.analyzed_by_model_capability === 'string') return true;
+  if (obj.analyzed_at || obj.overall_impression) return true;
+  const photos = Array.isArray(obj.photos) ? obj.photos : [];
+  return photos.some((ph) => ph && typeof ph === 'object' && (
+    (ph.analysis_status !== undefined && ph.analysis_status !== 'pending')
+    || ph.scene_description || ph.text_visible || ph.notable_objects
+    || ph.dominant_colors || ph.people_count !== null && ph.people_count !== undefined
+  ));
+}
+
 // 다른 세션/모델이 이미 채운 파일이면 재분석하지 않는다 (모델 간 핸드오프 지점).
 if (fs.existsSync(outputPath)) {
   try {
     const existing = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
     if (existing && typeof existing.analyzed_by_model_capability === 'string') {
       console.error(`Photo analysis already exists at ${outputPath} (capability: ${existing.analyzed_by_model_capability}). Skipping.`);
+      process.exit(0);
+    }
+    if (hasAnalysisContent(existing)) {
+      // capability는 아직 안 찍혔지만 내용이 들어 있다 = 진행 중인 분석이다.
+      // 덮어쓰지 않고 그대로 둔다 — 이어서 채우는 것이 맞다.
+      console.error(`Photo analysis in progress at ${outputPath} (analyzed_by_model_capability가 아직 null이지만 내용이 채워져 있습니다). Skipping.`);
+      console.error('  이어서 남은 사진을 Read/Edit으로 채우고, 끝나면 analyzed_by_model_capability를 세팅하세요.');
+      console.error('  처음부터 다시 만들려면 이 파일을 직접 지우고 재실행하세요.');
       process.exit(0);
     }
   } catch (err) {
