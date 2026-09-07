@@ -230,3 +230,18 @@ test('닫는 태그에 잡다한 것이 붙어도 raw text 요소를 닫는다',
   assert.deepEqual(errors, []);
   assert.equal(findAll(root, 'p').length, 2);
 });
+
+test("따옴표 없는 속성값에서도 '<'가 종료 문자다", () => {
+  // 속성 **이름** 쪽만 고치고 값 쪽을 빼두면 헤드라인 버그가 이 한 위치에서
+  // 그대로 살아남는다 — 판정 기준이 위치에 따라 달라지는 형태다.
+  const { root, errors } = parseHtml('<figure class=foo<img src="b.webp"></figure>');
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].code, 'malformed-tag');
+  assert.equal(findAll(root, 'img').length, 1, '<img>가 여전히 사라짐');
+  // 정상적인 따옴표 없는 값은 영향 없다
+  assert.deepEqual(parseHtml('<img width=100 height=200 src="a.webp">').errors, []);
+  assert.equal(getAttr(findAll(parseHtml('<img width=100 src="a.webp">').root, 'img')[0], 'width'), '100');
+  // 값 안의 <는 따옴표 안이므로 무해하다
+  assert.deepEqual(parseHtml('<img alt="1<2" src="a.webp">').errors, []);
+  assert.equal(getAttr(findAll(parseHtml('<img alt="1<2" src="a.webp">').root, 'img')[0], 'alt'), '1<2');
+});

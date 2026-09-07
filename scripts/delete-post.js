@@ -3,7 +3,7 @@ require('dotenv').config();
 const axios = require('axios');
 const { getArg, validateKnownFlags } = require('../lib/cli-args');
 const { getPost, deletePost } = require('../lib/blogger');
-const { errExitCode, errFull } = require('../lib/err-text');
+const { errCode, errFull, reportFatal } = require('../lib/err-text');
 
 function printUsage() {
   console.log('Usage: node delete-post.js --post-id ID [--draft-only] [--keep-trash]');
@@ -26,7 +26,7 @@ async function verifyUrlGone(url) {
     return { gone: res.status === 404 || res.status === 410, status: res.status };
   } catch (err) {
     // 네트워크 오류는 "404 확인됨"이 아니다 — 판정 불가로 보고한다.
-    return { gone: false, status: 0, error: err.code || errFull(err) };
+    return { gone: false, status: 0, error: errCode(err) || errFull(err) };
   }
 }
 
@@ -86,9 +86,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('Delete failed:', errFull(err));
-  if (err.response?.data) {
-    console.error('API response:', JSON.stringify(err.response.data));
-  }
-  process.exit(errExitCode(err) || 1);
+  // 핸들러가 err를 직접 만지지 않는다 — reportFatal이 message/stack/response.data와
+  // exit 코드를 전부 가드해서 꺼낸다 (`Promise.reject(null)`에서도 죽지 않는다).
+  process.exit(reportFatal(err, 'Delete failed:'));
 });

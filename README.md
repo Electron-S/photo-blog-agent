@@ -38,6 +38,7 @@
 | `npm run assets:upload` | 이미지 압축 & GitHub Pages 업로드 |
 | `npm run lint:draft` | 초안 HTML 규칙 검증 (`--upload-result`, `--format text\|json`, `--strict`; exit 8=위반) |
 | `npm test` | 유닛 테스트 |
+| `npm run test:clock` | 시스템 시계를 옮긴 채 유닛 테스트 (`CLOCK_OFFSET_MS`) — 시간 종속 회귀 방어 |
 | `npm run session:state` | 세션 진행 상태 (`init`/`update`/`read`/`list`) |
 | `npm run naver:doctor` | 네이버 자동화 프리플라이트 |
 | `npm run naver:inspect` | 네이버 실물 DOM 셀렉터 확인 |
@@ -59,8 +60,10 @@ node scripts/extract-exif.js <이미지경로...> --output tmp/metadata-2026-05-
 node scripts/analyze-photos.js <이미지경로...> --output tmp/photo-analysis-2026-05-05.json
 
 # 2단계: 이미지 처리 & GitHub Pages 업로드 (--metadata로 1단계 결과 연결)
-node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-05-05.json \
-  [--slug 슬러그] [--max-size-kb N] [--output tmp/upload-<슬러그>.json] [--local-only]
+# --slug은 필수다 (폴더 경로의 유일한 식별자 — 아래 "슬러그" 절 참조)
+node scripts/upload-images.js <이미지경로...> --slug <슬러그> \
+  --metadata tmp/metadata-2026-05-05.json \
+  [--max-size-kb N] [--output tmp/upload-<슬러그>.json] [--local-only]
 ```
 
 ### 라이브러리 (`lib/`)

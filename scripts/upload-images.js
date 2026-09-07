@@ -3,9 +3,9 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { uploadBlogImages, DEFAULT_MAX_SIZE_KB, MAX_SIZE_KB_LIMIT } = require('../lib/github-assets');
-const { errExitCode, errFull, errStack } = require('../lib/err-text');
+const { errFull, reportFatal } = require('../lib/err-text');
 const { checkDatePlausible } = require('../lib/slug');
-const { slugCollapsed } = require('../lib/asset-paths');
+const { canonicalSlugError } = require('../lib/asset-paths');
 
 const args = process.argv.slice(2);
 
@@ -22,7 +22,8 @@ function printUsage() {
   console.log('  --local-only    GitHub 업로드/검증 생략, 압축까지만 (네이버 발행 경로)');
   console.log('');
   console.log('날짜 우선순위: --date > --metadata의 primary_date > (없으면 exit 5, 멱등성 보호)');
-  console.log('종료 코드: 0=전부 정상, 1=업로드/검증 실패, 2=--output 쓰기 실패, 4=품질 저하(fallback/oversize/치수 결손), 5=날짜 출처 미상');
+  console.log('종료 코드: 0=전부 정상, 1=인자 오류(--slug 누락/비정규형 포함)·업로드/검증 실패,');
+  console.log('           2=--output 쓰기 실패, 4=품질 저하(fallback/oversize/치수 결손/계약 위반), 5=날짜 출처 미상');
   process.exit(1);
 }
 
@@ -127,6 +128,22 @@ function readMetadataPrimaryDate(metadataPath) {
   }
   const primaryDate = parsed.primary_date;
   if (primaryDate == null) {
+    // **원인을 구별한다.** primary_date가 null인 이유는 두 가지이고 조치가 다르다:
+    //   (a) EXIF에 날짜가 아예 없다 → 사용자에게 방문 날짜를 물어야 한다
+    //   (b) 날짜는 있는데 타당 범위를 벗어났다 (카메라 시계 초기화·미래 날짜)
+    //       → 사진에 박힌 값을 보여주고 실제 날짜를 확인해야 한다
+    // 예전에는 둘 다 "EXIF 날짜 없는 사진"으로 보고해 (b)에서 엉뚱한 진단이 나갔다.
+    const photos = Array.isArray(parsed.photos) ? parsed.photos : [];
+    const implausible = photos.filter((ph) => ph && ph.date_status === 'implausible');
+    if (implausible.length) {
+      return {
+        value: null,
+        reason: 'metadata_implausible_date',
+        detail: implausible.slice(0, 3)
+          .map((ph) => `${ph.file || '?'}: ${String(ph.date || '').slice(0, 10)}`)
+          .join(', ') + (implausible.length > 3 ? ` … (총 ${implausible.length}장)` : ''),
+      };
+    }
     return { value: null, reason: 'metadata_no_date' };
   }
   if (typeof primaryDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(primaryDate)) {
@@ -138,6 +155,17 @@ function readMetadataPrimaryDate(metadataPath) {
 
 async function main() {
   const { imagePaths, get, has } = parseArgs();
+
+  // **usage를 먼저 낸다.** 예전에는 이 검사가 날짜 해석 뒤에 있어서, 인자 없이
+  // 실행하면 exit 5(날짜 출처 미상)로 끝나고 usage가 나오지 않았다. 이 저장소의
+  // 다른 스크립트는 전부 usage를 내고, CLAUDE.md도 "인자 없이 실행하면 나오는
+  // usage로 확인"하라고 안내한다 — 특히 --slug가 필수가 된 뒤로는 usage를 못 보면
+  // 무엇을 넘겨야 하는지 알 방법이 없다.
+  if (imagePaths.length === 0) {
+    console.error('Error: at least one image path is required');
+    printUsage();
+  }
+
   const metadata = readMetadataPrimaryDate(get('--metadata'));
   const explicitDate = validateExplicitDate(get('--date'));
   const today = new Date().toISOString().slice(0, 10);
@@ -153,40 +181,43 @@ async function main() {
     dateSource = 'metadata';
     console.error(`[upload-images] 날짜=${date} (EXIF primary_date)`);
   } else {
-    const reason = metadata.reason === 'metadata_no_date'
-      ? '--metadata는 제공됐지만 primary_date가 null (EXIF 날짜 없는 사진)'
-      : '--date / --metadata 둘 다 없음';
+    const REASONS = {
+      metadata_no_date: '--metadata는 제공됐지만 primary_date가 null (EXIF 날짜 없는 사진)',
+      metadata_implausible_date: '--metadata의 사진 날짜가 타당 범위를 벗어나 primary_date가 정해지지 않음'
+        + ` (카메라 시계 오류 의심: ${metadata.detail})`,
+      no_metadata_arg: '--date / --metadata 둘 다 없음',
+    };
+    const reason = REASONS[metadata.reason] || REASONS.no_metadata_arg;
     console.error(`[upload-images] ERROR: ${reason}. 오늘(${today})로 fallback할 경우 폴더 경로가 작성 시점에 종속되어 멱등성이 깨집니다. 업로드를 중단합니다 (exit 5). 의도된 경우 --date를 명시하세요.`);
+    if (metadata.reason === 'metadata_implausible_date') {
+      console.error('[upload-images]   위 사진의 EXIF 날짜를 확인하고, 실제 방문 날짜를 --date YYYY-MM-DD로 넘기세요.');
+    }
     process.exit(5);
   }
 
   const slug = get('--slug');
-  // **필수다.** 예전에는 생략하면 slug가 리터럴 'post'로 고정되어, 같은 날짜의
-  // 모든 글이 같은 폴더(date-hash)를 공유했다 — 이미 발행된 글의 photo-NN.webp를
-  // 원격에서 제자리 덮어쓰기 한다. usage는 "첫 번째 이미지 파일명에서 생성"이라고
-  // 적혀 있었지만 그런 코드 경로가 없었다.
+  // **필수이고, 정규형이어야 한다.** 예전에는 생략하면 slug가 리터럴 'post'로
+  // 고정되어 같은 날짜의 모든 글이 같은 폴더를 공유했다 — 이미 발행된 글의
+  // photo-NN.webp를 원격에서 제자리 덮어쓰기 한다. usage는 "첫 번째 이미지
+  // 파일명에서 생성"이라고 적혀 있었지만 그런 코드 경로가 없었다.
   // 파일명 유도는 일부러 하지 않는다 — 넘긴 파일 순서에 따라 폴더가 달라져
   // CLAUDE.md가 요구하는 멱등성이 깨진다. 사람이 한 번 정하는 것이 맞다.
-  if (!slug || !slug.trim()) {
-    console.error('Error: --slug은 필수입니다. 폴더 경로 posts/{date}-{hash}의 유일한 식별자이므로,');
-    console.error('  생략하면 같은 날짜의 다른 글과 같은 폴더를 써서 이미 발행된 이미지를 덮어씁니다.');
-    console.error('  예: --slug seokchon-lake-spring (영문/숫자/하이픈, 세션 내 한 번 정하고 계속 사용)');
-    process.exit(1);
-  }
-  if (slugCollapsed(slug)) {
-    console.error(`Error: --slug "${slug}"은 ASCII 경로로 바꾸면 전부 사라집니다 (→ 'post').`);
-    console.error('  영문/숫자/하이픈으로 된 slug를 쓰세요 — 한글 slug는 다른 글과 같은 폴더가 됩니다.');
+  //
+  // 검증은 발행(publish-post)·세션(session-state)과 **같은 SLUG_RE**를 쓰고,
+  // 추가로 slugify가 손대지 않는 값만 받는다. 그러지 않으면 `trip-경복궁`처럼
+  // 부분만 사라지는 slug가 통과해 서로 다른 글이 같은 폴더로 수렴한다.
+  const slugError = canonicalSlugError(slug);
+  if (slugError) {
+    console.error(`Error: --slug ${slugError}`);
+    console.error('  slug은 폴더 경로 posts/{date}-{hash}의 유일한 식별자입니다.');
+    console.error('  잘못되면 같은 날짜의 다른 글과 같은 폴더를 써서 이미 발행된 이미지를 덮어씁니다.');
+    console.error('  예: --slug seokchon-lake-spring (세션 내 한 번 정하고 계속 사용)');
     process.exit(1);
   }
   const workDir = get('--work-dir');
   const outputPath = get('--output');
   const localOnly = has('--local-only');
   const maxSizeKB = parseMaxSizeKB(get('--max-size-kb'));
-
-  if (imagePaths.length === 0) {
-    console.error('Error: at least one image path is required');
-    printUsage();
-  }
 
   for (const imgPath of imagePaths) {
     if (!fs.existsSync(imgPath)) {
@@ -262,10 +293,8 @@ async function main() {
 }
 
 main().catch((err) => {
-  // publish-post.js와 같은 형태 — message/stack/response.data를 모두 남긴다.
-  // 한쪽만 출력하면 결과 매핑 중 TypeError가 났을 때 어느 줄인지 알 수 없다.
-  console.error('Upload failed:', errFull(err));
-  if (errStack(err)) console.error(errStack(err));
-  if (err.response?.data) console.error('API response:', JSON.stringify(err.response.data));
-  process.exit(errExitCode(err) || 1);
+  // message/stack/response.data를 모두 남긴다. 한쪽만 출력하면 결과 매핑 중
+  // TypeError가 났을 때 어느 줄인지 알 수 없다.
+  // **핸들러가 err를 직접 만지지 않는다** — reportFatal이 전부 가드한다.
+  process.exit(reportFatal(err, 'Upload failed:'));
 });

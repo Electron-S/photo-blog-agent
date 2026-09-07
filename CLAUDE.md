@@ -118,6 +118,7 @@ node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --slug <
 | `npm run assets:upload` | 이미지 압축 & GitHub Pages 업로드 |
 | `npm run lint:draft` | 초안 HTML 규칙 검증 (exit 8=위반) |
 | `npm test` | 유닛 테스트 (`node --test test/`) |
+| `npm run test:clock` | 시계를 옮긴 채 테스트 (`CLOCK_OFFSET_MS`) — 시간 종속 회귀 방어 |
 | `npm run assets:test` | GitHub Pages 업로드 테스트 |
 | `npm run blogger:auth` | Blogger OAuth 토큰 획득 |
 | `npm run blogger:test` | Blogger API 연결 테스트 |

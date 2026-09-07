@@ -1,7 +1,7 @@
 require('dotenv').config();
 
 const { getBlog } = require('../lib/blogger');
-const { errFull } = require('../lib/err-text');
+const { errFull, errResponseData } = require('../lib/err-text');
 
 const {
   BLOGGER_BLOG_ID: blogId,
@@ -26,7 +26,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  const details = err.response?.data ? JSON.stringify(err.response.data) : errFull(err);
+  const details = errResponseData(err) || errFull(err);
   console.error(details);
   process.exit(1);
 });

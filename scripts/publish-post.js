@@ -2,7 +2,7 @@ require('dotenv').config();
 
 const { getPost, publishPost, updatePost } = require('../lib/blogger');
 const { getArg, validateKnownFlags } = require('../lib/cli-args');
-const { errExitCode, errFull, errStack } = require('../lib/err-text');
+const { errFull, errStack, reportFatal } = require('../lib/err-text');
 const {
   extractSlugFromUrl,
   loadSlugFromMetadata,
@@ -245,17 +245,10 @@ async function main() {
 // (예전에는 require만 해도 usage를 찍고 process.exit(1) 했다.)
 if (require.main === module) {
   main().catch((err) => {
-    // err.message와 err.response.data를 모두 출력 — 한쪽을 다른 쪽이 덮어 사용자 안내 문구
-  // (예: 슬러그 트릭의 수동 복원 가이드)가 silent하게 사라지는 사고를 막는다.
-    console.error('Publish failed:', errFull(err));
-    if (errStack(err)) {
-      console.error(errStack(err));
-    }
-    if (err.response?.data) {
-      console.error('API response:', JSON.stringify(err.response.data));
-    }
-    // failWithExit가 부여한 의미별 exit code(7=슬러그 검증 실패 등) 전파. 없으면 일반 실패(1).
-    process.exit(errExitCode(err) || 1);
+    // message와 response.data를 모두 출력 — 한쪽을 다른 쪽이 덮어 사용자 안내 문구
+    // (예: 슬러그 트릭의 수동 복원 가이드)가 silent하게 사라지는 사고를 막는다.
+    // failWithExit가 부여한 의미별 exit code(7=슬러그 검증 실패 등)도 여기서 전파된다.
+    process.exit(reportFatal(err, 'Publish failed:'));
   });
 }
 

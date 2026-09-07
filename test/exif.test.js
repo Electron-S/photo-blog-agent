@@ -173,3 +173,43 @@ test('parseArgv', () => {
   // 플래그 뒤 위치 인자도 수집된다
   assert.deepEqual(parseArgv(['--output', 'o.json', 'a.jpg']).imagePaths, ['a.jpg']);
 });
+
+test('GPS ref의 NUL 패딩을 전 분기에서 벗긴다 (정상 좌표를 버리지 않는다)', () => {
+  // exif-reader는 ASCII 필드의 **마지막 NUL 하나만** 벗기고, String.trim()은
+  // NUL을 지우지 않는다. 그래서 count=3인 세 바이트 ref가 NUL을 달고 도착해
+  // 예전 코드가 좌표를 통째로 버렸다 — 정상 사진의 gps_center가 null이 되어
+  // 리서치 단계가 장소를 못 찾는다. 그것도 회귀다.
+  const NUL = String.fromCodePoint(0);
+  const SEOUL = { GPSLatitude: [37, 33, 36], GPSLongitude: [126, 58, 40] };
+  const EXPECT = { lat: 37.56, lng: 126.977778 };
+
+  const variants = [
+    ['NUL 없음', 'N', 'E'],
+    ['NUL 1개', `N${NUL}`, `E${NUL}`],
+    ['NUL 2개', `N${NUL}${NUL}`, `E${NUL}${NUL}`],
+    ['공백+NUL', `N ${NUL}`, `E ${NUL}`],
+    ['Buffer', Buffer.from(`N${NUL}${NUL}`, 'latin1'), Buffer.from(`E${NUL}${NUL}`, 'latin1')],
+    ['Uint8Array', new Uint8Array([0x4E, 0, 0]), new Uint8Array([0x45, 0, 0])],
+    ['배열', [`N${NUL}`], [`E${NUL}`]],
+  ];
+  for (const [label, latRef, lngRef] of variants) {
+    assert.deepEqual(
+      normalizeGps({ ...SEOUL, GPSLatitudeRef: latRef, GPSLongitudeRef: lngRef }),
+      EXPECT,
+      `${label}: 정상 좌표를 버림`,
+    );
+  }
+  // 부호 반전도 유지
+  assert.deepEqual(
+    normalizeGps({
+      GPSLatitude: [33, 52, 4],
+      GPSLongitude: [70, 40, 0],
+      GPSLatitudeRef: `S${NUL}${NUL}`,
+      GPSLongitudeRef: `W${NUL}${NUL}`,
+    }),
+    { lat: -33.867778, lng: -70.666667 },
+  );
+  // 여전히 잘못된 ref는 거부한다
+  assert.equal(normalizeGps({ ...SEOUL, GPSLatitudeRef: 'X', GPSLongitudeRef: 'Y' }), null);
+  assert.equal(normalizeGps({ ...SEOUL, GPSLatitudeRef: NUL, GPSLongitudeRef: NUL }), null);
+});

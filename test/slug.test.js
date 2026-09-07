@@ -80,15 +80,19 @@ test('validateSlugArg — 날짜처럼 안 보이는 슬러그는 달력 검증 
 });
 
 test('parsePrimaryDate', () => {
-  assert.equal(parsePrimaryDate({ primary_date: '2026-05-10' }), '2026-05-10');
+  // **now를 주입한다.** 기본값 `new Date()`에 의존하면 시스템 시계가 2026-05-10보다
+  // 이전인 머신(또는 CI)에서 이 테스트가 "미래 날짜"로 실패한다 — 실측으로
+  // 시계를 1년 뒤로 돌리면 2건이 깨졌다. 타당성 자체는 별 테스트에서 확인한다.
+  const NOW = { now: new Date('2026-09-07T00:00:00Z') };
+  assert.equal(parsePrimaryDate({ primary_date: '2026-05-10' }, null, NOW), '2026-05-10');
 
-  assert.throws(() => parsePrimaryDate({ primary_date: null }), /null이거나 문자열이 아닙니다/);
-  assert.throws(() => parsePrimaryDate({}), /null이거나 문자열이 아닙니다/);
-  assert.throws(() => parsePrimaryDate({ primary_date: '2026-5-10' }), /YYYY-MM-DD 형식이 아닙니다/);
-  assert.throws(() => parsePrimaryDate({ primary_date: '2026-02-30' }), /유효한 달력 날짜가 아닙니다/);
-  assert.throws(() => parsePrimaryDate(null), /최상위 타입이 객체가 아닙니다/);
-  assert.throws(() => parsePrimaryDate([]), /최상위 타입이 객체가 아닙니다/);
-  assert.throws(() => parsePrimaryDate('str'), /최상위 타입이 객체가 아닙니다/);
+  assert.throws(() => parsePrimaryDate({ primary_date: null }, null, NOW), /null이거나 문자열이 아닙니다/);
+  assert.throws(() => parsePrimaryDate({}, null, NOW), /null이거나 문자열이 아닙니다/);
+  assert.throws(() => parsePrimaryDate({ primary_date: '2026-5-10' }, null, NOW), /YYYY-MM-DD 형식이 아닙니다/);
+  assert.throws(() => parsePrimaryDate({ primary_date: '2026-02-30' }, null, NOW), /유효한 달력 날짜가 아닙니다/);
+  assert.throws(() => parsePrimaryDate(null, null, NOW), /최상위 타입이 객체가 아닙니다/);
+  assert.throws(() => parsePrimaryDate([], null, NOW), /최상위 타입이 객체가 아닙니다/);
+  assert.throws(() => parsePrimaryDate('str', null, NOW), /최상위 타입이 객체가 아닙니다/);
 });
 
 test('loadSlugFromMetadata — 파일에서 읽기', (t) => {
@@ -97,7 +101,8 @@ test('loadSlugFromMetadata — 파일에서 읽기', (t) => {
 
   const good = path.join(dir, 'meta.json');
   fs.writeFileSync(good, JSON.stringify({ primary_date: '2026-05-10' }), 'utf8');
-  assert.equal(loadSlugFromMetadata(good), '2026-05-10');
+  // 시계 종속을 없애려고 now를 주입한다 (위 parsePrimaryDate 테스트와 같은 이유).
+  assert.equal(loadSlugFromMetadata(good, { now: new Date('2026-09-07T00:00:00Z') }), '2026-05-10');
 
   const broken = path.join(dir, 'broken.json');
   fs.writeFileSync(broken, '{not json', 'utf8');
@@ -152,4 +157,15 @@ test('슬러그 규칙은 한 곳뿐 — 발행이 통과한 슬러그는 sessio
       assert.equal(accepted(slug), true, `${slug}: 발행 통과 후 session-state 거부 — 순서 사고`);
     }
   }
+});
+
+test('checkDatePlausible — 형식이 틀린 값을 "타당하다"고 통과시키지 않는다', () => {
+  // `NaN < 1990`과 `NaN > limit`이 둘 다 false라서 'abc'·'2026'이 통과했다.
+  // 지금은 모든 호출자가 먼저 정규식 검사를 하므로 도달하지 않지만, 형식이
+  // 보장됐다고 가정하는 검증기는 호출자가 하나 늘면 조용히 뚫린다.
+  const NOW = { now: new Date('2026-09-07T00:00:00Z') };
+  for (const bad of ['abc', '2026', '2026-05', 'NaN-NaN-NaN', '', null, undefined, 123, {}]) {
+    assert.ok(checkDatePlausible(bad, NOW), `${JSON.stringify(bad)}를 타당하다고 통과시킴`);
+  }
+  assert.equal(checkDatePlausible('2026-05-10', NOW), null);
 });

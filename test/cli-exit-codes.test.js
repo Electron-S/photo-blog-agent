@@ -74,6 +74,73 @@ test('upload-images: --date 형식 오류는 exit 1', () => {
   assert.equal(run('upload-images.js', ['a.jpg', '--date', '2026-2-3']).status, 1);
 });
 
+test('upload-images: 인자 없이 실행하면 usage를 낸다', () => {
+  // 예전에는 이 검사가 날짜 해석 뒤에 있어서 exit 5(날짜 출처 미상)로 끝나고
+  // usage가 나오지 않았다. --slug이 필수가 된 뒤로는 usage를 못 보면 무엇을
+  // 넘겨야 하는지 알 방법이 없다. CLAUDE.md가 "인자 없이 실행하면 나오는
+  // usage로 확인"하라고 안내하는 것도 이 때문이다.
+  const r = run('upload-images.js', []);
+  assert.equal(r.status, 1, `status=${r.status}\n${r.stdout}${r.stderr}`);
+  assert.match(r.stdout, /Usage: node upload-images\.js/);
+  assert.match(r.stdout, /--slug/);
+  assert.match(r.stderr, /at least one image path/);
+  // npm run assets:upload도 같은 결과여야 한다 (인자 없는 별칭)
+  assert.doesNotMatch(r.stderr, /exit 5/);
+});
+
+test('upload-images: --slug은 필수이고 정규형이어야 한다 (폴더 덮어쓰기 방지)', () => {
+  const withDate = (extra) => run('upload-images.js', ['a.jpg', '--date', '2026-05-10', ...extra]);
+
+  // 생략 → 같은 날짜의 모든 글이 같은 폴더를 쓴다
+  const missing = withDate([]);
+  assert.equal(missing.status, 1, `status=${missing.status}`);
+  assert.match(missing.stderr, /--slug/);
+
+  // 전부 붕괴 / **부분** 붕괴 / 비정규형 — 전부 거부
+  for (const bad of ['경복궁', 'trip-경복궁', 'My_Post', '-lead', 'a--b', 'a b']) {
+    const r = withDate(['--slug', bad]);
+    assert.equal(r.status, 1, `--slug ${bad} 가 통과함 (status=${r.status})`);
+    assert.match(r.stderr, /--slug/);
+  }
+
+  // 정규형 slug는 slug 게이트를 통과한다 (파일이 없어서 다음 단계에서 멈춘다)
+  for (const good of ['seokchon-lake', '2026-05-10']) {
+    const r = withDate(['--slug', good]);
+    assert.match(r.stderr, /file not found/, `--slug ${good} 가 slug 게이트에서 막힘`);
+  }
+});
+
+test('upload-images: exit 5의 원인을 구별해서 보고한다', (t) => {
+  // 카메라 시계 오류(implausible)와 EXIF 날짜 없음은 조치가 다르다.
+  // 예전에는 둘 다 "EXIF 날짜 없는 사진"으로 보고해 전자에서 엉뚱한 진단이 나갔다.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-d5-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const write = (name, obj) => {
+    const p = path.join(dir, name);
+    fs.writeFileSync(p, JSON.stringify(obj), 'utf8');
+    return p;
+  };
+  const clockError = write('clock.json', {
+    primary_date: null,
+    photos: [{ file: 'a.jpg', date: '1899-11-30T00:00:00+09:00', date_status: 'implausible' }],
+  });
+  const noDate = write('nodate.json', {
+    primary_date: null,
+    photos: [{ file: 'a.jpg', date: null, date_status: 'missing' }],
+  });
+
+  const r1 = run('upload-images.js', ['a.jpg', '--metadata', clockError, '--slug', 'x']);
+  assert.equal(r1.status, 5);
+  assert.match(r1.stderr, /카메라 시계 오류 의심/);
+  assert.match(r1.stderr, /1899-11-30/, 'EXIF에 박힌 값을 보여주지 않음');
+
+  const r2 = run('upload-images.js', ['a.jpg', '--metadata', noDate, '--slug', 'x']);
+  assert.equal(r2.status, 5);
+  assert.match(r2.stderr, /EXIF 날짜 없는 사진/);
+  assert.doesNotMatch(r2.stderr, /카메라 시계/, '두 원인이 구별되지 않음');
+});
+
 test('extract-exif: 지원 이미지가 없으면 exit 3', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-cli-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

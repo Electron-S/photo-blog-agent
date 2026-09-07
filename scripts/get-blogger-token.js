@@ -4,7 +4,7 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const axios = require('axios');
-const { errFull } = require('../lib/err-text');
+const { errFull, errResponseData } = require('../lib/err-text');
 
 const PORT = Number(process.env.BLOGGER_OAUTH_PORT || 3000);
 const REDIRECT_PATH = '/oauth2callback';
@@ -86,7 +86,7 @@ const server = http.createServer(async (req, res) => {
     console.log('Blogger refresh token saved to .env');
     server.close(() => process.exit(0));
   } catch (err) {
-    const details = err.response?.data ? JSON.stringify(err.response.data) : errFull(err);
+    const details = errResponseData(err) || errFull(err);
     res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end(`Token exchange failed: ${details}`);
     console.error(`Token exchange failed: ${details}`);

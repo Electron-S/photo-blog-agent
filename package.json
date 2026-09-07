@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "test": "node --test test/",
+    "test:clock": "node --require ./tools/clock-shim.js --test test/",
     "lint:draft": "node scripts/lint-draft.js",
     "session:state": "node scripts/session-state.js",
     "blogger:auth": "node scripts/get-blogger-token.js",

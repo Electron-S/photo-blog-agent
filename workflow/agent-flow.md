@@ -7,8 +7,8 @@
 2. prompts/workflow-steps.md(워크플로우 정본)와 style-guide/system-rules를 읽음
 3. scripts/extract-exif.js로 EXIF 메타데이터를 JSON에 저장 (primary_date = 방문 날짜)
 4. scripts/analyze-photos.js로 시각 분석 골격을 만들고 Read 도구로 사진을 보며 채움
-5. scripts/upload-images.js에 3의 JSON을 --metadata로 전달해 압축·업로드
-   (--output으로 width/height가 담긴 결과 JSON을 남김)
+5. scripts/upload-images.js에 3의 JSON을 --metadata로, 정한 slug를 --slug로 전달해 압축·업로드
+   (--slug은 필수 — 폴더 경로의 유일한 식별자다. --output으로 width/height가 담긴 결과 JSON을 남김)
 6. 방문지 리서치 — 공식/신뢰 가능한 공개 정보 수집
    - place_info: 공식 명칭, 카테고리, 주소, 연락처
    - access: 대중교통(역/정류장, 노선, 출구, 도보), 주차

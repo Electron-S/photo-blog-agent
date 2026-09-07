@@ -32,3 +32,15 @@ jobs:
       # npm ci 자체가 lockfile 동기화 게이트다 — drift가 있으면 여기서 실패한다.
       - run: npm ci
       - run: npm test
+      # 시계 종속 회귀 방어. lib/slug.js가 "미래 날짜는 카메라 시계 오류"로
+      # 판정하므로, 날짜를 하드코딩한 테스트가 new Date() 기본값에 의존하면
+      # 시계가 그 날짜보다 이전인 환경에서 조용히 깨진다. 시계를 ±2년 옮겨
+      # 돌려 그런 종속이 새로 생기는 것을 막는다 (실측으로 2건이 깨진 적 있다).
+      - name: clock -2y
+        run: npm run test:clock
+        env:
+          CLOCK_OFFSET_MS: '-63072000000'
+      - name: clock +2y
+        run: npm run test:clock
+        env:
+          CLOCK_OFFSET_MS: '63072000000'

@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 const sharp = require('sharp');
 const { uploadBlogImages } = require('../lib/github-assets');
-const { errFull } = require('../lib/err-text');
+const { errFull, errResponseData } = require('../lib/err-text');
 
 async function main() {
   const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'photo-blog-assets-'));
@@ -64,7 +64,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  const details = err.response?.data ? JSON.stringify(err.response.data) : errFull(err);
+  const details = errResponseData(err) || errFull(err);
   console.error(details);
   process.exit(1);
 });

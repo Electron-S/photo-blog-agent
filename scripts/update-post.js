@@ -5,7 +5,7 @@ const { updatePost } = require('../lib/blogger');
 const { getArg, validateKnownFlags } = require('../lib/cli-args');
 const { lintDraftHtml, formatLintReport, validateUploadResult } = require('../lib/lint-draft');
 const { verifyImageUrls } = require('../lib/verify-images');
-const { errExitCode, errFull } = require('../lib/err-text');
+const { errFull, reportFatal } = require('../lib/err-text');
 
 function printUsage() {
   console.log('Usage: node update-post.js --post-id ID [--title "제목"] [--content "HTML 본문"] [--labels "라벨1,라벨2"]');
@@ -128,9 +128,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('Post update failed:', errFull(err));
-  if (err.response?.data) {
-    console.error('API response:', JSON.stringify(err.response.data));
-  }
-  process.exit(errExitCode(err) || 1);
+  // 핸들러가 err를 직접 만지지 않는다 — reportFatal이 message/stack/response.data와
+  // exit 코드를 전부 가드해서 꺼낸다 (`Promise.reject(null)`에서도 죽지 않는다).
+  process.exit(reportFatal(err, 'Post update failed:'));
 });

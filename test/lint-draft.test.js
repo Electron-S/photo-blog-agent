@@ -405,3 +405,70 @@ test('src의 엔티티가 디코드돼 브라우저가 요청하는 URL과 같�
   assert.deepEqual(extractImageUrls('<img src="https://x/a&amp;b.webp">'), ['https://x/a&b.webp']);
   assert.deepEqual(extractImageUrls('<img src="https://x/a.webp">'), ['https://x/a.webp']);
 });
+
+test('규칙이 getAttr을 직접 부르지 않는다 (ctx.attr 봉쇄를 코드로 강제)', () => {
+  // `ctx.attr`로 속성 디코드를 통일했지만, `getAttr`이 여전히 import돼 있어
+  // 모든 규칙의 렉시컬 스코프 안에 있다. 관례일 뿐 강제가 아니면 같은 클래스가
+  // 조용히 다시 열린다 — 라운드마다 반복된 형태다.
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'lint-draft.js'), 'utf8');
+
+  // 주석은 설명이다. 개행은 보존해 줄 번호를 맞춘다.
+  const code = src
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+    .replace(/\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, ' '));
+
+  // RULES 배열 이후(=규칙 본문 전체)에서만 검사한다. ctx.attr 자신의 정의는
+  // buildContext 안에 있고 거기서는 getAttr을 써야 한다.
+  const rulesAt = code.indexOf('const RULES = [');
+  assert.ok(rulesAt > 0, 'RULES 배열을 찾지 못했습니다 — 이 테스트를 갱신하세요.');
+  const rulesBody = code.slice(rulesAt);
+
+  const offenders = [];
+  for (const m of rulesBody.matchAll(/\bgetAttr\s*\(/g)) {
+    const line = code.slice(0, rulesAt + m.index).split('\n').length;
+    offenders.push(`lib/lint-draft.js:${line}`);
+  }
+  assert.deepEqual(offenders, [],
+    `규칙 안에서 getAttr을 직접 부르고 있습니다. ctx.attr을 쓰세요 (엔티티 디코드가 빠집니다):\n${offenders.join('\n')}`);
+
+  // buildContext 안에서는 정확히 한 번 쓰인다 (ctx.attr의 구현)
+  const beforeRules = code.slice(0, rulesAt);
+  assert.equal((beforeRules.match(/\bgetAttr\s*\(/g) || []).length, 1,
+    'ctx.attr 구현 외의 getAttr 호출이 buildContext에 있습니다.');
+});
+
+test('업로드 결과와 파일 경로로만 매칭되면 표면화한다 (호스트 교차)', () => {
+  // tail 매칭은 {postDir}/photo-NN.webp 두 조각만 본다. 그 관용성은 의도된
+  // 것이지만(URL 인코딩·에셋 base URL 변경 흡수) 조용하면 초안이 **옛 에셋
+  // 호스트**를 가리켜도 치수 검증이 통과한다.
+  const FIG = (src) => '<figure style="margin:1.5em 0;text-align:center;position:relative;">'
+    + `<img src="${src}" width="1024" height="768" loading="lazy" alt="가게 외관" `
+    + 'style="max-width:100%;height:auto;">'
+    + '<figcaption>해질녘에 본 가게 앞 풍경입니다</figcaption></figure>';
+  const uploadResult = {
+    images: [{
+      index: 1,
+      webpUrl: 'https://mine.github.io/posts/2026-05-10-abc/photo-01.webp',
+      width: 1024,
+      height: 768,
+    }],
+  };
+  const warnsFor = (src) => lintDraftHtml(FIG(src), { uploadResult })
+    .warnings.map((w) => w.rule);
+
+  assert.ok(!warnsFor('https://mine.github.io/posts/2026-05-10-abc/photo-01.webp')
+    .includes('upload-match-by-filename'), '같은 호스트인데 경고');
+  assert.ok(warnsFor('https://old.example/posts/2026-05-10-abc/photo-01.webp')
+    .includes('upload-match-by-filename'), '호스트가 다른데 조용함');
+  // 상대 경로는 호스트를 비교할 수 없으므로 관용 매칭을 유지한다 (경고 없음)
+  assert.ok(!warnsFor('/posts/2026-05-10-abc/photo-01.webp')
+    .includes('upload-match-by-filename'));
+  // --upload-result가 없으면 이 규칙은 아예 돌지 않는다
+  assert.deepEqual(
+    lintDraftHtml(FIG('https://x/a.webp'), {}).warnings
+      .filter((w) => w.rule === 'upload-match-by-filename'),
+    [],
+  );
+});
