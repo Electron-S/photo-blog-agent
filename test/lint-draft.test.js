@@ -689,3 +689,70 @@ test('방문 동사는 단어 시작이어야 한다 (합성 이동동사 오탐
     assert.equal(hit(bad), true, `놓침: ${bad}`);
   }
 });
+
+test('작성 시점 표현 — 경계 요구는 갔에만 (재방문/첫방문을 놓치지 않는다)', () => {
+  // 12차에서 `갔`의 합성 이동동사 오탐(내려갔/지나갔)을 막으려고 단어 경계를
+  // 요구했는데, **모든 stem에 일괄 적용**해서 정반대 사고가 났다. `방문`은
+  // 접두사가 붙어도 뜻이 같은 명사 어근이라 **재방문/첫방문**이 통째로 샜다 —
+  // 카페·식당 재방문기가 이 프로젝트의 주 장르이고 "오늘 재방문했습니다"는
+  // 이 규칙이 막아야 할 표현 그 자체다.
+  //
+  // 오탐은 발행이 막혀 즉시 드러나지만 미탐은 아무도 모르는 채 LIVE로 나간다.
+  // 테스트가 못 잡은 이유: 방문 동사 케이스가 전부 "공백 + stem" 형태였다.
+  const hit = (text) => lintDraftHtml(`<p>${text}</p>`, {}).errors
+    .some((e) => e.rule === 'no-writing-date-expression');
+
+  for (const bad of [
+    '오늘 재방문했습니다.',
+    '어제 재방문해서 새 메뉴를 먹었습니다.',
+    '지금 막 재방문했어요.',
+    '오늘 아이와 함께 재방문했어요.',
+    '오늘 첫방문이라 설렜습니다.',
+    '오늘 다시 방문했습니다.',
+    // 구두점 뒤도 경계로 인정한다 — "공백이 우연히 있었는가"에 의존하지 않는다.
+    // `갔`은 경계를 요구하는 유일한 stem이므로 구두점 케이스를 여기로 검사한다.
+    '오늘 "다녀왔습니다".',
+    '오늘,다녀왔습니다.',
+    '오늘(혼자) 다녀왔습니다.',
+    '오늘갔다.',
+    '오늘,갔다.',
+    '오늘 "갔다".',
+    '어제(아내와)갔다.',
+  ]) {
+    assert.equal(hit(bad), true, `놓침: ${bad}`);
+  }
+
+  // `갔`의 경계 요구는 유지된다 — 합성 이동동사 오탐이 돌아오면 안 된다
+  for (const ok of [
+    '오늘 기준 가격이 조금 내려갔어요.',
+    '어제 밤에 기온이 영하로 내려갔다고 뉴스에 나왔습니다.',
+    '지금은 리모델링으로 간판이 내려갔다고 합니다.',
+    '오늘 하루가 어떻게 지나갔는지 모르겠다.',
+  ]) {
+    assert.equal(hit(ok), false, `오탐(발행 불가): ${ok}`);
+  }
+});
+
+test('캡션만으로는 이미지 다음 문장 요건을 채울 수 없다 (평탄화 우회 차단)', () => {
+  // 평탄화로 figcaption이 **루트**로 올라오면 textOf의 skip이 걸러주지 않는다
+  // (`n !== node` 조건 때문에 루트 자신은 skip 대상이 아니다). 그러면
+  // style-guide가 금지한 "캡션을 길게 써서 분량 채우기"가 열린다.
+  const FIGURE = '<figure style="margin:1.5em 0;text-align:center;position:relative;">'
+    + '<img src="https://x/p.webp" width="1024" height="768" loading="lazy" '
+    + 'alt="가게 외관" style="max-width:100%;height:auto;">'
+    + '<figcaption>정상 캡션입니다</figcaption></figure>';
+  const stats = (html) => lintDraftHtml(html, {}).stats.sentencesAfterFigure;
+  const blocked = (html) => lintDraftHtml(html, {}).errors
+    .some((e) => e.rule === 'text-after-figure');
+
+  const capOnly = `${FIGURE}<div><figcaption>캡션 문장입니다. 둘째 문장입니다. 셋째 문장입니다.</figcaption></div>`;
+  assert.deepEqual(stats(capOnly), [0], '캡션이 본문 문장으로 셈됨');
+  assert.equal(blocked(capOnly), true);
+
+  // 진짜 본문은 래퍼 유무와 무관하게 세어진다
+  const P3 = '<p>첫 문장입니다. 둘째 문장입니다. 셋째 문장입니다.</p>';
+  assert.deepEqual(stats(FIGURE + P3), [3]);
+  assert.deepEqual(stats(`${FIGURE}<div>${P3}</div>`), [3]);
+  // 캡션이 섞여 있어도 본문만 센다
+  assert.deepEqual(stats(`${FIGURE}<div><figcaption>캡션.</figcaption><p>첫 문장입니다. 둘째 문장입니다.</p></div>`), [2]);
+});
