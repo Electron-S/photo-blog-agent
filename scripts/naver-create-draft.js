@@ -15,7 +15,7 @@ const path = require('path');
 const { NAVER_EXIT, NaverError, reportNaverError } = require('../lib/naver-errors');
 const { isVerified, verificationStatus } = require('../lib/naver-selectors');
 const { htmlToBlocks, resolveImagePaths, summarizeBlocks } = require('../lib/naver-content');
-const { errFull } = require('../lib/err-text');
+const { errExitCode, errFull } = require('../lib/err-text');
 
 const FLAGS_WITH_VALUE = new Set([
   '--html', '--title', '--category', '--tags', '--visibility', '--image-dir', '--assets-root',
@@ -190,6 +190,6 @@ if (require.main === module) {
     main();
   } catch (err) {
     reportNaverError(err);
-    process.exit(err.exitCode || 1);
+    process.exit(errExitCode(err) || 1);
   }
 }

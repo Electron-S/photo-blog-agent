@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const {
+  checkDatePlausible,
   extractSlugFromUrl,
   loadSlugFromMetadata,
   parsePrimaryDate,
@@ -103,4 +104,52 @@ test('loadSlugFromMetadata — 파일에서 읽기', (t) => {
   assert.throws(() => loadSlugFromMetadata(broken));
 
   assert.throws(() => loadSlugFromMetadata(path.join(dir, 'missing.json')));
+});
+
+// --- 7차 리뷰 회귀 ---
+
+test('사진 날짜의 타당성 — 카메라 시계 센티널이 URL로 고정되지 않는다', () => {
+  // exif-reader는 `0000:00:00 00:00:00`을 Date.UTC(0,-1,0) = **1899-11-30**으로
+  // 준다. 달력상 유효하므로 date_status "ok" → primary_date → --slug-from-date로
+  // **Blogger URL이 1899-11-30으로 영구 고정**됐다. CLAUDE.md "URL 슬러그 —
+  // 절대 규칙"상 삭제·재발행 없이는 복구 불가다.
+  for (const bad of ['1899-11-30', '1970-01-01', '1989-12-31', '1900-01-01']) {
+    assert.throws(() => parsePrimaryDate({ primary_date: bad }), /타당하지 않습니다/, bad);
+    assert.ok(checkDatePlausible(bad), `${bad}가 타당하다고 판정됨`);
+  }
+  // 미래 날짜도 시계 오류다 (사진은 미래에 찍힐 수 없다)
+  const now = new Date('2026-09-07T00:00:00Z');
+  assert.ok(checkDatePlausible('2027-01-01', { now }));
+  assert.ok(checkDatePlausible('2400-01-01', { now }));
+  // 하루 여유 — 촬영 기기와 실행 머신의 타임존 차이
+  assert.equal(checkDatePlausible('2026-09-08', { now }), null);
+  assert.equal(checkDatePlausible('2026-09-09', { now }) !== null, true);
+  // 정상 범위는 통과
+  for (const ok of ['1990-01-01', '2020-02-29', '2026-05-10']) {
+    assert.equal(checkDatePlausible(ok, { now }), null, ok);
+    assert.equal(parsePrimaryDate({ primary_date: ok }, null, { now }), ok);
+  }
+});
+
+test('슬러그 규칙은 한 곳뿐 — 발행이 통과한 슬러그는 session-state도 받는다', () => {
+  // 예전에는 publish-post가 `^[a-zA-Z0-9-]+$`, session-state가
+  // `^[a-z0-9][a-z0-9-]*$`였다. `--slug MyPost`가 발행을 통과해 **URL이 영구
+  // 고정된 뒤** session-state가 exit 9로 죽었다 — 되돌릴 수 없는 작업 다음에
+  // 세션이 깨지는 순서다.
+  const { statePath } = require('../lib/session-state');
+  const accepted = (slug) => { try { statePath(slug, 'tmp'); return true; } catch { return false; } };
+
+  for (const slug of ['seokchon-lake', '2026-05-10', 'a', 'x1-2-3']) {
+    assert.equal(validateSlugArg(slug).ok, true, `발행이 ${slug}를 거부`);
+    assert.equal(accepted(slug), true, `발행은 통과했는데 session-state가 ${slug}를 거부`);
+  }
+  for (const slug of ['MyPost', '-leading', 'abc_def', 'Abc', '가나다']) {
+    assert.equal(validateSlugArg(slug).ok, false, `발행이 ${slug}를 통과`);
+  }
+  // 발행이 통과하는 슬러그는 예외 없이 session-state도 받아야 한다 (반대는 허용)
+  for (const slug of ['MyPost', '-2026-05-10', 'seokchon-lake', '2026-05-10']) {
+    if (validateSlugArg(slug).ok) {
+      assert.equal(accepted(slug), true, `${slug}: 발행 통과 후 session-state 거부 — 순서 사고`);
+    }
+  }
 });

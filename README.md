@@ -103,6 +103,16 @@ node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-
 2. **사진 시각 분석 스캐폴딩** (`analyze-photos.js`) — `tmp/photo-analysis-<날짜>.json`에 빈 골격 생성. Claude Code가 Read 도구로 사진을 보고 Edit으로 채움.
 3. **이미지 처리 & 업로드** (`upload-images.js`) — `--metadata`로 1단계 결과를 받아 EXIF 날짜를 폴더 경로에 반영. WebP 변환, 리사이즈, 워터마크, GitHub Pages 업로드.
 
+### 슬러그 — 폴더 경로의 유일한 식별자
+
+`upload-images.js`의 `--slug`는 **필수**입니다. 경로가 `posts/{date}-{sha256(date-slug)[0:12]}`이므로
+slug가 없으면 같은 날짜의 모든 글이 같은 폴더를 공유해 **이미 발행된 글의 이미지를 덮어씁니다.**
+한글 slug는 ASCII화 과정에서 전부 사라져(`slugify('경복궁') === 'post'`) 같은 결과가 되므로 exit 1로 거부합니다.
+
+발행 슬러그(`publish-post.js --slug`)와 세션 슬러그(`session-state.js --slug`)는 **같은 규칙**
+(`^[a-z0-9][a-z0-9-]*$`)을 씁니다. 예전에는 발행이 대문자를 허용하고 세션이 거부해서,
+`--slug MyPost`가 **Blogger URL을 영구 고정한 뒤** 세션이 exit 9로 죽었습니다.
+
 ### 사진 날짜 vs 글 쓰는 날짜
 
 - 블로그 글의 방문 날짜 = `primary_date` (EXIF 촬영일). 글 작성 시점(오늘)과 혼동 금지.
@@ -117,6 +127,11 @@ node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-
 - **워터마크**: 우측 하단 반투명, `WATERMARK_TEXT` 환경변수로 텍스트 지정.
 - **경로 난독화**: `posts/{date}-{sha256hash12}/photo-NN.webp` — URL 추측 방지.
 - **업로드 후 URL 검증**: 최대 3회 재시도.
+- **날짜 타당성**: 1990년 이전·미래 날짜는 카메라 시계 오류로 보고 `primary_date` 후보에서 제외
+  (`date_status: "implausible"`). exif-reader가 `0000:00:00`을 `1899-11-30`으로 주는데,
+  그 값이 Blogger URL로 영구 고정되는 것을 막습니다.
+- **GPS**: 반구 지시자(`GPSLatitudeRef`/`GPSLongitudeRef`)가 없으면 좌표를 버립니다 —
+  N/E로 가정하면 남반구·서반구 좌표가 정반대 지점이 됩니다. `(0, 0)`은 측위 실패 센티널로 버립니다.
 
 ### 종료 코드
 
@@ -124,7 +139,7 @@ node scripts/upload-images.js <이미지경로...> --metadata tmp/metadata-2026-
 |---|---|---|---|---|---|---|---|---|---|
 | `extract-exif.js` | 성공 | 일반 실패 | `--output` 쓰기 실패 | 지원 이미지 없음 | — | — | — | — | — |
 | `analyze-photos.js` | 성공 | 인자 오류 | `--output` 쓰기 실패 | 지원 이미지 없음 | — | — | — | — | — |
-| `upload-images.js` | 전부 정상 | 업로드/검증 실패 | `--output` 쓰기 실패 | — | 품질 저하: fallback/oversize/치수 결손 | 날짜 출처 미상 — 업로드 거부 (멱등성 보호) | — | — | — |
+| `upload-images.js` | 전부 정상 | 인자 오류(`--slug` 누락/붕괴)·업로드/검증 실패 | `--output` 쓰기 실패 | — | 품질 저하: fallback/oversize/치수 결손/계약 위반 | 날짜 출처 미상 — 업로드 거부 (멱등성 보호) | — | — | — |
 | `publish-post.js` | 성공 | 일반 실패 | — | — | — | — | 슬러그 미지정 거부 | 슬러그 검증 실패 | — |
 | `delete-post.js` | 성공 | 일반 실패 | — | — | — | — | — | 삭제 후 옛 URL이 살아 있음 | — |
 | `lint-draft.js` | 통과 | 인자/파일 오류 | — | — | — | — | — | — | 규칙 위반 (error 1건 이상) |

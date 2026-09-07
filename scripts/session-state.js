@@ -11,7 +11,7 @@ const {
   STEPS, SessionStateError, defaultState, listStates, markCompleted,
   readState, statePath, touch, writeStateAtomic,
 } = require('../lib/session-state');
-const { errFull } = require('../lib/err-text');
+const { errExitCode, errFull } = require('../lib/err-text');
 
 const SUBCOMMANDS = ['init', 'update', 'read', 'list'];
 const FLAGS_WITH_VALUE = new Set([
@@ -25,7 +25,8 @@ function printUsage() {
   console.log('Usage: node session-state.js <init|update|read|list> [options]');
   console.log('');
   console.log('  init   --slug S [--primary-date D] [--metadata-path P] [--analysis-path P]');
-  console.log('         [--upload-result-path P] [--force]');
+  console.log('         [--upload-result-path P] [--draft-path P] [--post-id ID] [--post-url URL] [--force]');
+  console.log('         --force로 덮어쓸 때 post_id/post_url을 보존하려면 함께 넘기세요');
   console.log('         이미 있으면 덮어쓰지 않고 현재 상태를 출력하며 exit 0 (--force로만 덮어씀)');
   console.log('');
   console.log('  update --slug S [--complete a,b] [--draft-path P] [--post-id ID] [--post-url URL]');
@@ -167,14 +168,25 @@ function main() {
   }
 
   if (sub === 'update') {
-    // update는 엄격 모드 — 깨진 상태를 더 깨진 상태로 저장하지 않는다.
-    const existing = readState(slug, dir, { strict: true });
+    // **읽기는 관대하게, 쓰기는 엄격하게.** 예전에는 여기서 strict read를 해서
+    // 불변식이 깨진 상태를 **읽는 것부터** 막았다. 그런데 그 오류 메시지가
+    // 안내하는 복구 방법이 바로 `--complete`로 빠진 단계를 채우는 것이라,
+    // 안내받은 복구가 원리적으로 불가능했다 (남는 길은 post_id를 날리는
+    // init --force뿐). 엄격 검사는 writeStateAtomic이 하므로, 고치지 않은 채
+    // 저장하려 하면 여전히 exit 9다 — 손상 상태가 디스크에 남지는 않는다.
+    const existing = readState(slug, dir);
     if (!existing) {
       throw new SessionStateError(
         `session-state가 없습니다 (${statePath(slug, dir)}). 먼저 init을 실행하세요.`,
       );
     }
-    for (const w of existing.warnings) console.error(`  경고: ${w}`);
+    if (existing.warnings.length) {
+      console.error('  ※ 현재 상태에 불변식 위반이 있습니다. --complete / --post-id 로 고쳐 주세요');
+      console.error('    (고치지 않은 채 저장하려 하면 exit 9로 거부됩니다):');
+      for (const w of existing.warnings) {
+        for (const line of String(w).split('\n')) console.error(`    ${line.trim()}`);
+      }
+    }
 
     let state = applyFields(existing.state, get);
     const completeArg = get('--complete');
@@ -228,6 +240,6 @@ if (require.main === module) {
     main();
   } catch (err) {
     console.error(`session-state 실패: ${errFull(err)}`);
-    process.exit(err.exitCode || 1);
+    process.exit(errExitCode(err) || 1);
   }
 }

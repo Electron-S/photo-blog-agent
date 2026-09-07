@@ -5,7 +5,7 @@ const { updatePost } = require('../lib/blogger');
 const { getArg, validateKnownFlags } = require('../lib/cli-args');
 const { lintDraftHtml, formatLintReport, validateUploadResult } = require('../lib/lint-draft');
 const { verifyImageUrls } = require('../lib/verify-images');
-const { errFull } = require('../lib/err-text');
+const { errExitCode, errFull } = require('../lib/err-text');
 
 function printUsage() {
   console.log('Usage: node update-post.js --post-id ID [--title "제목"] [--content "HTML 본문"] [--labels "라벨1,라벨2"]');
@@ -132,5 +132,5 @@ main().catch((err) => {
   if (err.response?.data) {
     console.error('API response:', JSON.stringify(err.response.data));
   }
-  process.exit(err.exitCode || 1);
+  process.exit(errExitCode(err) || 1);
 });

@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { slugify, hashPath, postDirName } = require('../lib/asset-paths');
+const {
+  hashPath, postDirName, slugCollapsed, slugify,
+} = require('../lib/asset-paths');
 
 test('slugify — ASCII 정규화', () => {
   assert.equal(slugify('Seokchon Lake Spring'), 'seokchon-lake-spring');
@@ -96,4 +98,34 @@ test('escapeXml — 워터마크가 SVG를 깨뜨리지 않는다', () => {
   assert.equal(escapeXml('<b>'), '&lt;b&gt;');
   assert.equal(escapeXml('a"b\'c'), 'a&quot;b&apos;c');
   assert.equal(escapeXml('평범한 텍스트'), '평범한 텍스트');
+});
+
+// --- 7차 리뷰 회귀 ---
+
+test('slugCollapsed — 한글 slug가 조용히 같은 폴더로 붕괴하는 것을 감지한다', () => {
+  // slugify는 한글을 전부 지우고 'post'를 준다. 그래서 hashPath가 날짜만의
+  // 함수가 되어 **서로 다른 글이 같은 원격 폴더를 쓴다** — 이미 발행된 글의
+  // photo-NN.webp가 제자리에서 교체된다. slugify 자체는 ASCII 유지가 목적이므로
+  // 호출자가 붕괴를 감지해야 한다.
+  assert.equal(slugify('경복궁'), 'post');
+  assert.equal(slugify('서울카페'), 'post');
+  assert.equal(postDirName('2026-05-10', slugify('경복궁')),
+    postDirName('2026-05-10', slugify('서울카페')), '전제 확인: 붕괴하면 같은 폴더');
+
+  for (const collapsing of ['경복궁', '서울카페', '한글제목', '日本語', '★☆']) {
+    assert.equal(slugCollapsed(collapsing), true, `${collapsing} 붕괴를 놓침`);
+  }
+  for (const fine of ['seokchon', 'post', '', '  ', 'a-b-c', '2026-05-10', '- leading']) {
+    assert.equal(slugCollapsed(fine), false, `${fine} 를 붕괴로 오탐`);
+  }
+});
+
+test('uploadBlogImages는 slug 없이/붕괴하는 slug로 업로드하지 않는다', () => {
+  // sharp를 로드하므로 여기서만 require한다.
+  const { uploadBlogImages } = require('../lib/github-assets');
+  return Promise.all([
+    assert.rejects(() => uploadBlogImages(['a.jpg'], { date: '2026-05-10' }), /options\.slug이 필요/),
+    assert.rejects(() => uploadBlogImages(['a.jpg'], { date: '2026-05-10', slug: '  ' }), /options\.slug이 필요/),
+    assert.rejects(() => uploadBlogImages(['a.jpg'], { date: '2026-05-10', slug: '경복궁' }), /전부 사라집니다/),
+  ]);
 });

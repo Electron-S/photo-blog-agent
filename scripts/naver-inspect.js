@@ -16,7 +16,7 @@ const { SELECTORS, editorUrl, verificationStatus } = require('../lib/naver-selec
 const { assertLoggedIn, openContext, requireBlogId } = require('../lib/naver-browser');
 const { resolveEditorFrame, dismissStartupModals } = require('../lib/naver-dom');
 const { dumpFailure, describeFrames } = require('../lib/naver-debug');
-const { errFull, errText } = require('../lib/err-text');
+const { errExitCode, errFull, errText } = require('../lib/err-text');
 
 const BOOLEAN_FLAGS = new Set(['--dump', '--keep-open', '--skip-modals', '--headless']);
 
@@ -247,6 +247,6 @@ async function main() {
 if (require.main === module) {
   main().catch((err) => {
     reportNaverError(err);
-    process.exit(err.exitCode || NAVER_EXIT.GENERAL);
+    process.exit(errExitCode(err) || NAVER_EXIT.GENERAL);
   });
 }

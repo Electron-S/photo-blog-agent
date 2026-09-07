@@ -3,17 +3,19 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { uploadBlogImages, DEFAULT_MAX_SIZE_KB, MAX_SIZE_KB_LIMIT } = require('../lib/github-assets');
-const { errFull } = require('../lib/err-text');
+const { errExitCode, errFull, errStack } = require('../lib/err-text');
+const { checkDatePlausible } = require('../lib/slug');
+const { slugCollapsed } = require('../lib/asset-paths');
 
 const args = process.argv.slice(2);
 
 function printUsage() {
-  console.log('Usage: node upload-images.js <image1> [image2] ... [--metadata path] [--date YYYY-MM-DD] [--slug slug] [--work-dir dir] [--max-size-kb N] [--output path] [--local-only]');
+  console.log('Usage: node upload-images.js <image1> [image2] ... --slug <slug> [--metadata path] [--date YYYY-MM-DD] [--work-dir dir] [--max-size-kb N] [--output path] [--local-only]');
   console.log('');
   console.log('Options:');
   console.log('  --metadata      extract-exif.js 출력 JSON 경로. primary_date를 게시일로 사용');
   console.log('  --date          게시일 (--metadata의 primary_date보다 우선; 둘 다 없거나 null이면 exit 5)');
-  console.log('  --slug          URL 슬러그 (기본값: 첫 번째 이미지 파일명에서 생성)');
+  console.log('  --slug          URL 슬러그 (필수). 영문/숫자/하이픈. 폴더 경로의 유일한 식별자다');
   console.log('  --work-dir      압축 이미지 임시 디렉토리 (기본값: ./tmp/assets/<date>-<hash>)');
   console.log(`  --max-size-kb   AdSense 이미지 크기 기준 KB (기본값: ${DEFAULT_MAX_SIZE_KB})`);
   console.log('  --output        결과 JSON 저장 경로 (예: tmp/upload-<slug>.json). lint-draft --upload-result에 사용');
@@ -89,6 +91,13 @@ function validateExplicitDate(raw) {
     console.error(`Error: --date "${raw}"는 유효한 달력 날짜가 아닙니다.`);
     process.exit(1);
   }
+  // --date는 명시적 의사 표시이므로 타당성 밖 날짜도 허용한다. 다만 폴더 경로에
+  // 그대로 박히므로 오타인지 의도인지 확인할 수 있게 경고는 남긴다.
+  const implausible = checkDatePlausible(raw);
+  if (implausible) {
+    console.error(`Warning: --date ${implausible}`);
+    console.error('  (--date를 명시했으므로 진행합니다 — 폴더 경로에 이 날짜가 그대로 들어갑니다.)');
+  }
   return raw;
 }
 
@@ -152,6 +161,23 @@ async function main() {
   }
 
   const slug = get('--slug');
+  // **필수다.** 예전에는 생략하면 slug가 리터럴 'post'로 고정되어, 같은 날짜의
+  // 모든 글이 같은 폴더(date-hash)를 공유했다 — 이미 발행된 글의 photo-NN.webp를
+  // 원격에서 제자리 덮어쓰기 한다. usage는 "첫 번째 이미지 파일명에서 생성"이라고
+  // 적혀 있었지만 그런 코드 경로가 없었다.
+  // 파일명 유도는 일부러 하지 않는다 — 넘긴 파일 순서에 따라 폴더가 달라져
+  // CLAUDE.md가 요구하는 멱등성이 깨진다. 사람이 한 번 정하는 것이 맞다.
+  if (!slug || !slug.trim()) {
+    console.error('Error: --slug은 필수입니다. 폴더 경로 posts/{date}-{hash}의 유일한 식별자이므로,');
+    console.error('  생략하면 같은 날짜의 다른 글과 같은 폴더를 써서 이미 발행된 이미지를 덮어씁니다.');
+    console.error('  예: --slug seokchon-lake-spring (영문/숫자/하이픈, 세션 내 한 번 정하고 계속 사용)');
+    process.exit(1);
+  }
+  if (slugCollapsed(slug)) {
+    console.error(`Error: --slug "${slug}"은 ASCII 경로로 바꾸면 전부 사라집니다 (→ 'post').`);
+    console.error('  영문/숫자/하이픈으로 된 slug를 쓰세요 — 한글 slug는 다른 글과 같은 폴더가 됩니다.');
+    process.exit(1);
+  }
   const workDir = get('--work-dir');
   const outputPath = get('--output');
   const localOnly = has('--local-only');
@@ -206,6 +232,10 @@ async function main() {
       orientationApplied: item.orientationApplied === true,
       dimensionsError: item.dimensionsError ?? null,
       compressionError: item.compressionError ?? null,
+      // 계약 위반(치수를 못 읽음)은 폴백과 조치가 다르다 — 원본 점검이 아니라
+      // sharp/파이프라인 점검이다. 이 필드를 빼면 summary.contractViolation만 남고
+      // "어느 이미지가 계약 위반인지"는 stderr에만 존재해 영속화되지 않는다.
+      contractError: item.contractError ?? null,
       verificationError: item.verificationError ?? null,
       error: item.error ?? null,
     })),
@@ -235,7 +265,7 @@ main().catch((err) => {
   // publish-post.js와 같은 형태 — message/stack/response.data를 모두 남긴다.
   // 한쪽만 출력하면 결과 매핑 중 TypeError가 났을 때 어느 줄인지 알 수 없다.
   console.error('Upload failed:', errFull(err));
-  if (err.stack) console.error(err.stack);
+  if (errStack(err)) console.error(errStack(err));
   if (err.response?.data) console.error('API response:', JSON.stringify(err.response.data));
-  process.exit(err.exitCode || 1);
+  process.exit(errExitCode(err) || 1);
 });

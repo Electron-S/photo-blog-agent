@@ -49,14 +49,49 @@ test('dmsToDecimal', () => {
 });
 
 test('normalizeGps — 배열형/숫자형 둘 다', () => {
+  const NE = { GPSLatitudeRef: 'N', GPSLongitudeRef: 'E' };
   assert.deepEqual(
-    normalizeGps({ GPSLatitude: [37, 30, 0], GPSLongitude: [127, 6, 0] }),
+    normalizeGps({ GPSLatitude: [37, 30, 0], GPSLongitude: [127, 6, 0], ...NE }),
     { lat: 37.5, lng: 127.1 },
   );
   assert.deepEqual(
-    normalizeGps({ GPSLatitude: 37.5, GPSLongitude: 127.1 }),
+    normalizeGps({ GPSLatitude: 37.5, GPSLongitude: 127.1, ...NE }),
     { lat: 37.5, lng: 127.1 },
   );
+});
+
+test('normalizeGps — 반구 지시자가 없으면 N/E로 가정하지 않고 버린다', () => {
+  // `=== 'S'`/`=== 'W'`만 보던 예전 코드는 ref 누락·Buffer·소문자를 전부 조용히
+  // N/E로 간주했다. 실측: 산티아고(-33.87,-70.67) 좌표가 파키스탄(33.87,70.67)이
+  // 되고 경고도 없었다. 이 값이 gps_center로 리서치 단계의 장소 식별에 들어간다.
+  const warned = [];
+  const warn = (m) => warned.push(m);
+  const SANTIAGO = { GPSLatitude: [33, 52, 4], GPSLongitude: [70, 40, 0] };
+
+  assert.equal(normalizeGps({ ...SANTIAGO }, 'x', warn), null, 'ref 없이 통과');
+  assert.match(warned[0], /반구 지시자/);
+  assert.equal(normalizeGps({ ...SANTIAGO, GPSLatitudeRef: 'S' }), null, '한쪽만 있어도 통과');
+  assert.equal(normalizeGps({ ...SANTIAGO, GPSLatitudeRef: 'X', GPSLongitudeRef: 'Y' }), null);
+
+  // 실제 EXIF 리더가 주는 여러 표현을 모두 받는다
+  for (const [latRef, lngRef] of [['S', 'W'], ['s', 'w'], [' S ', ' W '],
+    [Buffer.from('S'), Buffer.from('W')], [['S'], ['W']]]) {
+    assert.deepEqual(
+      normalizeGps({ ...SANTIAGO, GPSLatitudeRef: latRef, GPSLongitudeRef: lngRef }),
+      { lat: -33.867778, lng: -70.666667 },
+      `ref 표현 ${JSON.stringify(String(latRef))} 처리 실패`,
+    );
+  }
+});
+
+test('normalizeGps — (0,0)은 측위 실패 센티널이라 버린다', () => {
+  // 대서양 한가운데를 방문지로 넘기면 리서치가 엉뚱한 장소를 찾는다.
+  const warned = [];
+  assert.equal(normalizeGps({
+    GPSLatitude: [0, 0, 0], GPSLongitude: [0, 0, 0],
+    GPSLatitudeRef: 'N', GPSLongitudeRef: 'E',
+  }, 'z', (m) => warned.push(m)), null);
+  assert.match(warned[0], /측위 실패/);
 });
 
 test('normalizeGps — S/W 부호 반전', () => {
@@ -80,15 +115,16 @@ test('normalizeGps — 범위 초과와 결측은 null', () => {
   const warned = [];
   const warn = (m) => warned.push(m);
 
-  assert.equal(normalizeGps({ GPSLatitude: [200, 0, 0], GPSLongitude: [0, 0, 0] }, 'x', warn), null);
+  const NE = { GPSLatitudeRef: 'N', GPSLongitudeRef: 'E' };
+  assert.equal(normalizeGps({ GPSLatitude: [200, 0, 0], GPSLongitude: [1, 0, 0], ...NE }, 'x', warn), null);
   assert.match(warned[0], /out of range/);
 
-  assert.equal(normalizeGps({ GPSLatitude: [0, 0, 0], GPSLongitude: [200, 0, 0] }), null);
+  assert.equal(normalizeGps({ GPSLatitude: [1, 0, 0], GPSLongitude: [200, 0, 0], ...NE }), null);
   assert.equal(normalizeGps({}), null);
   assert.equal(normalizeGps(null), null);
 
   warned.length = 0;
-  assert.equal(normalizeGps({ GPSLatitude: 'bad', GPSLongitude: 'bad' }, 'y', warn), null);
+  assert.equal(normalizeGps({ GPSLatitude: 'bad', GPSLongitude: 'bad', ...NE }, 'y', warn), null);
   assert.match(warned[0], /Unexpected GPS DMS format/);
 });
 

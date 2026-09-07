@@ -378,3 +378,30 @@ test('tailKeyOf — Windows 경로 구분자도 나눈다 (--local-only 매칭)'
   assert.equal(r.stats.dimensionCheck, 'ok', JSON.stringify(rulesOf(r)));
   assert.ok(!r.errors.some((e) => e.rule === 'upload-result-no-match'));
 });
+
+// --- 7차 리뷰 회귀 ---
+
+test('속성값의 엔티티도 디코드한다 — alt="&nbsp;"가 통과하던 것', () => {
+  // 텍스트 쪽 규칙은 전부 decodeEntities를 거치는데 **속성만 예외**였다.
+  // 그래서 사실상 빈 alt가 img-alt-nonempty(접근성/AdSense 때문에 존재하는
+  // 규칙)를 통과했다. 이제 규칙은 getAttr을 직접 부르지 않고 ctx.attr만 쓴다.
+  const FIG = (alt) => '<figure style="margin:1.5em 0;text-align:center;position:relative;">'
+    + `<img src="https://x/p.webp" width="1024" height="768" loading="lazy" alt="${alt}" `
+    + 'style="max-width:100%;height:auto;">'
+    + '<figcaption>가게 앞에서 본 장면입니다</figcaption></figure>';
+  const hasAltError = (alt) => lintDraftHtml(FIG(alt), {}).errors
+    .some((e) => e.rule === 'img-alt-nonempty');
+
+  for (const blank of ['&nbsp;', '&#32;', '&#9;', '&#160;', '&#xa0;', ' ', '']) {
+    assert.equal(hasAltError(blank), true, `alt="${blank}" 가 통과함`);
+  }
+  assert.equal(hasAltError('가게 외관 사진'), false);
+});
+
+test('src의 엔티티가 디코드돼 브라우저가 요청하는 URL과 같아진다', () => {
+  // 브라우저는 `a&amp;b.webp`를 `a&b.webp`로 요청한다. 원문을 HEAD하면
+  // 살아 있는 이미지를 깨진 것으로, 혹은 그 반대로 본다.
+  const { extractImageUrls } = require('../lib/verify-images');
+  assert.deepEqual(extractImageUrls('<img src="https://x/a&amp;b.webp">'), ['https://x/a&b.webp']);
+  assert.deepEqual(extractImageUrls('<img src="https://x/a.webp">'), ['https://x/a.webp']);
+});

@@ -47,11 +47,19 @@ node scripts/analyze-photos.js <이미지경로1> [이미지경로2] ... --outpu
 ### 2단계: 이미지 처리 및 업로드
 
 ```bash
-node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --metadata tmp/metadata-<날짜>.json [--slug 슬러그] [--max-size-kb N]
+node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --slug <슬러그> --metadata tmp/metadata-<날짜>.json [--max-size-kb N]
 ```
 
 - **반드시 1단계의 `--output` JSON을 `--metadata`로 전달한다** — 그래야 사진 찍은 날짜가 폴더 경로에 반영되어 글 작성 시점과 분리된다.
 - 날짜 우선순위: `--date` 명시 > `--metadata`의 `primary_date` > **둘 다 없거나 primary_date가 null이면 즉시 exit 5로 중단** (오늘 날짜 fallback은 멱등성을 깨므로 차단). 의도된 경우 `--date`를 명시할 것.
+- **날짜 타당성**: 1990년 이전이나 미래 날짜는 카메라 시계 오류로 보고 `primary_date` 후보에서 제외한다
+  (`date_status: "implausible"`). exif-reader가 `0000:00:00`을 `1899-11-30`으로 주는데, 이 값이
+  그대로 Blogger URL로 영구 고정된 사고를 막기 위한 것이다. 정말로 옛 날짜라면 `--date`/`--slug`로 명시할 것.
+- **GPS 반구 지시자**(`GPSLatitudeRef`/`GPSLongitudeRef`)가 없으면 좌표를 버린다. N/E로 가정하면
+  남반구·서반구 좌표가 정반대 지점이 된다. `(0, 0)`도 측위 실패 센티널로 보고 버린다.
+- **`--slug`는 필수다.** 폴더 경로 `posts/{date}-{hash}`의 유일한 식별자이므로, 생략하면
+  같은 날짜의 모든 글이 같은 폴더를 써서 **이미 발행된 글의 이미지를 덮어쓴다**.
+  영문/숫자/하이픈만 — 한글 slug는 ASCII화 과정에서 전부 사라져 같은 결과가 되므로 exit 1로 거부된다.
 - `--slug`는 멱등성을 위해 한 번 정한 값을 유지할 것 (다른 slug로 재호출하면 중복 폴더가 생긴다)
 - WebP 포맷만 사용 (JPEG 폴백 없음)
 - 최대 1024x1024 리사이즈 (원본이 더 작으면 원본 크기 유지)
@@ -63,7 +71,7 @@ node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --metada
 
 종료 코드:
 - `extract-exif.js`: 0=성공, 1=일반 실패, 2=`--output` 쓰기 실패(stdout 미출력), 3=지원 이미지 없음
-- `upload-images.js`: 0=전부 정상, 1=업로드/검증 실패, 2=`--output` 쓰기 실패, 4=품질 저하(fallback/oversize/치수 결손), 5=날짜 출처 미상으로 업로드 거부 (`--metadata` 또는 `--date` 명시 필요, 멱등성 보호)
+- `upload-images.js`: 0=전부 정상, 1=인자 오류(`--slug` 누락/붕괴 포함)·업로드/검증 실패, 2=`--output` 쓰기 실패, 4=품질 저하(fallback/oversize/치수 결손/계약 위반), 5=날짜 출처 미상으로 업로드 거부 (`--metadata` 또는 `--date` 명시 필요, 멱등성 보호)
 - `publish-post.js`: 0=성공, 1=일반 실패, 6=`--slug`/`--slug-from-date` 미지정 거부, 7=슬러그 검증 실패 (LIVE 영구 고정 URL과 mismatch 또는 발행 후 사후 검증 mismatch — 자동 suffix `-N`은 통과)
 - `delete-post.js`: 0=성공(또는 `--draft-only`로 건너뜀), 1=일반 실패, 7=삭제 후 옛 URL이 아직 살아 있음 (휴지통 확인 필요)
 - `lint-draft.js` / `create-draft.js` / `update-post.js`: 8=초안 HTML 규칙 위반 (error 1건 이상)

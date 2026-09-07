@@ -5,7 +5,7 @@ const { createDraftPost } = require('../lib/blogger');
 const { getArg, validateKnownFlags } = require('../lib/cli-args');
 const { lintDraftHtml, formatLintReport, validateUploadResult } = require('../lib/lint-draft');
 const { verifyImageUrls } = require('../lib/verify-images');
-const { errFull } = require('../lib/err-text');
+const { errExitCode, errFull } = require('../lib/err-text');
 
 function printUsage() {
   console.log('Usage: node create-draft.js --title "제목" --content "HTML 본문" [--labels "라벨1,라벨2"] [--upload-result <upload.json>]');
@@ -122,5 +122,5 @@ main().catch((err) => {
     console.error('API response:', JSON.stringify(err.response.data));
   }
   // 의미별 exit 코드 전파 (8=lint 위반). publish-post.js의 failWithExit 패턴과 동일.
-  process.exit(err.exitCode || 1);
+  process.exit(errExitCode(err) || 1);
 });

@@ -13,6 +13,7 @@
 require('dotenv').config();
 
 const { NAVER_EXIT, reportNaverError } = require('../lib/naver-errors');
+const { errExitCode } = require('../lib/err-text');
 const {
   assertDisplayAvailable, establishSession, openContext, profileDir,
   requireBlogId, saveSessionSnapshot,
@@ -70,6 +71,6 @@ async function main() {
 if (require.main === module) {
   main().catch((err) => {
     reportNaverError(err);
-    process.exit(err.exitCode || NAVER_EXIT.GENERAL);
+    process.exit(errExitCode(err) || NAVER_EXIT.GENERAL);
   });
 }

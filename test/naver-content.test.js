@@ -238,7 +238,7 @@ test('htmlToBlocks — <a> 안에서도 화이트리스트가 적용된다', () 
 test('htmlToBlocks — figure/ul이 허용 밖 자식을 조용히 버리지 않는다', () => {
   assert.throws(
     () => htmlToBlocks('<figure><img src="a.webp"><figcaption>캡</figcaption><p>숨은문단</p></figure>'),
-    /<figure> 안에 허용되지 않은 요소/,
+    /<figure> 안에 아무도 소비하지 않는 내용/,
   );
   assert.throws(
     () => htmlToBlocks('<figure><img src="a.webp"><figcaption>하나</figcaption><figcaption>둘</figcaption></figure>'),
@@ -246,7 +246,7 @@ test('htmlToBlocks — figure/ul이 허용 밖 자식을 조용히 버리지 않
   );
   assert.throws(
     () => htmlToBlocks('<ul><li>가</li><div>숨음</div></ul>'),
-    /<li>가 아닌 요소/,
+    /<ul> 안에 아무도 소비하지 않는 내용/,
   );
 });
 
@@ -446,4 +446,24 @@ test('src도 alt·caption과 같은 파이프라인을 탄다', () => {
   assert.equal(src('p/b&amp;c.webp'), 'p/b&c.webp');   // 디코드 1회
   assert.equal(src('p/b&#0;.webp'), 'p/b.webp');       // 제어문자 제거
   assert.equal(src('  p/a.webp  '), 'p/a.webp');       // 공백 정리
+});
+
+test('figure/ul이 소비되지 않은 텍스트도 조용히 버리지 않는다', () => {
+  // 판정 기준이 "허용 안 된 **태그**"라서 elementChildren만 봤고, 텍스트 노드는
+  // 검사 대상이 아니었다. lint에도 이걸 막는 규칙이 없다.
+  assert.throws(() => htmlToBlocks('<ul>중요한 안내문<li>가</li></ul>'), /소비하지 않는 내용/);
+  assert.throws(() => htmlToBlocks('<ol>서두<li>1</li></ol>'), /소비하지 않는 내용/);
+  assert.throws(
+    () => htmlToBlocks('<figure><img src="x.webp" alt="a">여기 캡션이 사라진다</figure>'),
+    /소비하지 않는 내용/,
+  );
+  // pretty-print가 만든 공백 전용 텍스트는 내용이 아니다
+  assert.equal(htmlToBlocks('<ul>\n  <li>가</li>\n</ul>').blocks.length, 1);
+  assert.equal(
+    htmlToBlocks('<figure>\n  <img src="x.webp" alt="a">\n  <figcaption>정상</figcaption>\n</figure>')
+      .blocks[0].caption,
+    '정상',
+  );
+  // 보이지 않는 문자만 있는 것도 내용이 아니다 (finalizeSource가 지운다)
+  assert.equal(htmlToBlocks('<figure><img src="x.webp" alt="a">&#8203;</figure>').blocks.length, 1);
 });

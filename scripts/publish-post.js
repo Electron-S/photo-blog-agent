@@ -2,7 +2,7 @@ require('dotenv').config();
 
 const { getPost, publishPost, updatePost } = require('../lib/blogger');
 const { getArg, validateKnownFlags } = require('../lib/cli-args');
-const { errFull } = require('../lib/err-text');
+const { errExitCode, errFull, errStack } = require('../lib/err-text');
 const {
   extractSlugFromUrl,
   loadSlugFromMetadata,
@@ -207,7 +207,7 @@ async function main() {
       // metadata 로드 실패는 publish 단계 실패와 구분되어야 사용자가 올바른 후속 조치를 한다.
       // JSON parse/readFile 에러의 위치 정보(stack)를 보존해 깨진 파일 라인을 디버그할 수 있게 한다.
       console.error(`Error: --slug-from-date 로드 실패 — ${errFull(err)}`);
-      if (err.stack) console.error(err.stack);
+      if (errStack(err)) console.error(errStack(err));
       process.exit(1);
     }
     }
@@ -248,14 +248,14 @@ if (require.main === module) {
     // err.message와 err.response.data를 모두 출력 — 한쪽을 다른 쪽이 덮어 사용자 안내 문구
   // (예: 슬러그 트릭의 수동 복원 가이드)가 silent하게 사라지는 사고를 막는다.
     console.error('Publish failed:', errFull(err));
-    if (err.stack) {
-      console.error(err.stack);
+    if (errStack(err)) {
+      console.error(errStack(err));
     }
     if (err.response?.data) {
       console.error('API response:', JSON.stringify(err.response.data));
     }
     // failWithExit가 부여한 의미별 exit code(7=슬러그 검증 실패 등) 전파. 없으면 일반 실패(1).
-    process.exit(err.exitCode || 1);
+    process.exit(errExitCode(err) || 1);
   });
 }
 

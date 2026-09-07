@@ -70,8 +70,14 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/upload-images.js <사진들> \
   --output /home/cyyoo/develop/photo-blog-agent/tmp/upload-<슬러그>.json
 ```
 
-- slug는 영문/숫자/하이픈만. 장소·테마를 짧게 (예: `seokchon-lake-spring`, `omurice-jamsil`).
+- slug는 **소문자** 영문/숫자/하이픈만이고 하이픈으로 시작할 수 없습니다. 장소·테마를 짧게
+  (예: `seokchon-lake-spring`, `omurice-jamsil`). `--slug`는 **필수**이며, 생략하면 같은 날짜의
+  다른 글과 같은 폴더를 써서 이미 발행된 이미지를 덮어쓰기 때문에 exit 1로 거부됩니다.
+  한글 slug도 ASCII화 과정에서 전부 사라져 같은 결과가 되므로 거부됩니다.
+  이 규칙은 발행(`publish-post.js --slug`)·세션(`session-state.js --slug`)과 **동일**합니다.
 - exit 5 (날짜 출처 미상)가 나면 metadata의 `primary_date`가 null이라는 뜻 — Step 2 결과를 다시 확인하거나 `--date YYYY-MM-DD`를 추가해 재시도. 멱등성 보호이므로 우회하지 않습니다.
+  `date_status: "implausible"`인 사진이 있으면 카메라 시계가 초기화된 것입니다 (1990년 이전 또는 미래).
+  그 값은 `primary_date` 후보에서 제외되므로, 실제 방문 날짜를 사용자에게 확인해 `--date`로 넘깁니다.
 - exit 4 (품질 저하: fallback/oversize/치수 결손)는 경고로만 기록하고 진행. AdSense 기준(150KB) 초과나 `summary.missingDimensions > 0`이면 사용자에게 알립니다.
 - 업로드 결과 JSON의 `images[]`에서 `webpUrl`과 **`width`/`height`를 그대로 받아 둡니다.** 초안의 `<img>`에 이 값을 옮겨 적습니다. `null`이면 추측하지 말고 그 이미지를 빼거나 사용자에게 보고합니다.
 - `--output tmp/upload-<slug>.json`을 함께 지정하면 결과가 파일로 남아 이후 단계에서 재사용할 수 있습니다.
@@ -81,14 +87,20 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/upload-images.js <사진들> \
 ```bash
 node /home/cyyoo/develop/photo-blog-agent/scripts/session-state.js init \
   --slug <slug> \
+  --dir /home/cyyoo/develop/photo-blog-agent/tmp \
   --primary-date <metadata의 primary_date> \
-  --metadata-path tmp/metadata-<날짜>.json \
-  --analysis-path tmp/photo-analysis-<날짜>.json \
-  --upload-result-path tmp/upload-<slug>.json
+  --metadata-path /home/cyyoo/develop/photo-blog-agent/tmp/metadata-<날짜>.json \
+  --analysis-path /home/cyyoo/develop/photo-blog-agent/tmp/photo-analysis-<날짜>.json \
+  --upload-result-path /home/cyyoo/develop/photo-blog-agent/tmp/upload-<slug>.json
 
 node /home/cyyoo/develop/photo-blog-agent/scripts/session-state.js update \
-  --slug <slug> --complete exif,photo_analysis,upload
+  --slug <slug> --dir /home/cyyoo/develop/photo-blog-agent/tmp --complete exif,photo_analysis,upload
 ```
+
+- **`--dir`를 반드시 붙입니다.** 생략하면 기본값이 `tmp/`(**cwd 상대**)라 저장소 루트가
+  아닌 곳에서 실행하면 엉뚱한 위치에 상태 파일이 생기고, `/blog` 진입 프로브는
+  절대 경로로 조회하므로 "진행 중 세션 없음"을 봅니다 — 완료된 단계가 조용히 사라집니다.
+  경로 인자(`--metadata-path` 등)도 같은 이유로 절대 경로로 넘깁니다.
 
 - `primary_date`가 null이면 `--primary-date`를 생략합니다.
 - 이미 파일이 있으면 `init`은 덮어쓰지 않고 현재 상태를 출력하며 exit 0으로 끝납니다 (재실행이 진행 상태를 날리지 않습니다).
@@ -150,9 +162,11 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/session-state.js update \
 7. **session-state 갱신**:
    ```bash
    node /home/cyyoo/develop/photo-blog-agent/scripts/session-state.js update \
-     --slug <slug> --complete research,draft \
-     --draft-path tmp/draft-<slug>.html --post-id <ID>
+     --slug <slug> --dir /home/cyyoo/develop/photo-blog-agent/tmp --complete research,draft \
+     --draft-path /home/cyyoo/develop/photo-blog-agent/tmp/draft-<slug>.html --post-id <ID>
    ```
+   `--post-id`는 생략하지 마세요. 이게 없으면 Step 7의 `--complete publish`가
+   exit 9로 거부됩니다 (어느 글이 발행됐는지 알 수 없는 상태를 저장하지 않습니다).
 8. 사용자에게 초안 요약(제목, 라벨, fact_check_notes 핵심)을 보여줍니다.
 
 ### Step 6 — 수정 루프
@@ -188,8 +202,13 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/publish-post.js \
 - **session-state 마무리**:
   ```bash
   node /home/cyyoo/develop/photo-blog-agent/scripts/session-state.js update \
-    --slug <slug> --complete publish --post-url <발행된 URL>
+    --slug <slug> --dir /home/cyyoo/develop/photo-blog-agent/tmp --complete publish \
+    --post-id <ID> --post-url <발행된 URL>
   ```
+  `--post-id`를 함께 넘깁니다 — 상태에 아직 post_id가 없으면 exit 9로 거부됩니다
+  ("publish가 완료인데 어느 글인지 모른다"를 저장하지 않기 위한 검사입니다).
+  **발행은 이미 끝난 뒤**이므로, 여기서 exit 9가 나면 재시도가 아니라 `--post-id`를
+  붙여 다시 실행하세요.
 - 발행 결과 URL을 사용자에게 보여주고 모드를 마칩니다.
 
 ## 핵심 규칙 (모든 단계에서 항상)

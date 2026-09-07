@@ -12,6 +12,7 @@ const {
   parseExifDate,
   summarizeDates,
 } = require('../lib/exif');
+const { checkDatePlausible } = require('../lib/slug');
 const { errFull } = require('../lib/err-text');
 
 function printUsage() {
@@ -34,8 +35,8 @@ async function extractExif(imagePath) {
     try {
       parsed = exifReader(metadata.exif);
       exif_status = 'ok';
-    } catch (e) {
-      console.error(`EXIF parse warning for ${path.basename(imagePath)}: ${e.message}`);
+    } catch (err) {
+      console.error(`EXIF parse warning for ${path.basename(imagePath)}: ${errFull(err)}`);
       exif_status = 'parse_error';
     }
   }
@@ -88,8 +89,16 @@ async function main() {
     }
     try {
       const info = await extractExif(imgPath);
+      // 카메라 시계가 초기화되면 exif-reader가 `0000:00:00`을 **1899-11-30**으로
+      // 준다. 달력상 유효하므로 예전에는 date_status "ok"가 되어 그 날짜가
+      // primary_date → Blogger URL로 영구 고정됐다. 값을 버리지 않고
+      // implausible로 표시해, summarizeDates가 primary_date로 뽑지 않게 한다.
+      const plausibilityError = info.date ? checkDatePlausible(info.date.slice(0, 10)) : null;
       const date_status = info.exif_status === 'parse_error' ? 'parse_error'
-        : info.date ? 'ok' : 'missing';
+        : (plausibilityError ? 'implausible' : (info.date ? 'ok' : 'missing'));
+      if (plausibilityError) {
+        console.error(`Warning: ${path.basename(imgPath)}의 EXIF 날짜가 타당하지 않습니다 — ${plausibilityError}`);
+      }
       photos.push({ ...info, date_status });
     } catch (err) {
       console.error(`Error reading ${imgPath}: ${errFull(err)}`);
@@ -108,6 +117,11 @@ async function main() {
   const readErrors = photos.filter((p) => p.date_status === 'read_error').length;
   if (readErrors > 0) {
     console.error(`Warning: ${readErrors} photo(s) could not be read. primary_date may be unreliable.`);
+  }
+
+  const implausible = photos.filter((p) => p.date_status === 'implausible').length;
+  if (implausible > 0) {
+    console.error(`Warning: ${implausible}장의 EXIF 날짜가 타당 범위를 벗어나 primary_date 계산에서 제외했습니다.`);
   }
 
   const validPhotos = photos.filter((p) => p.date_status !== 'read_error');

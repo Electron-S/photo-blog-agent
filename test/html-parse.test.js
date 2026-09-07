@@ -170,3 +170,63 @@ test('style/script 내부는 마크업으로 파싱하지 않는다', () => {
   assert.deepEqual(errors, []);
   assert.equal(findAll(root, 'p').length, 1);
 });
+
+// --- 7차 리뷰 회귀: 조용히 마크업을 삼키던 경로 ---
+//
+// 이 파서가 존재하는 이유는 "관대한 파싱이 곧 silent failure"이기 때문인데,
+// 정작 세 곳에서 오류 없이 내용을 삼키고 있었다. 그 결과 **사진이 빠진 글이
+// lint를 exit 0으로 통과**한다 — figure에 img가 필수라는 규칙이 없어서
+// img 관련 규칙 6개가 전부 "img가 없으니 위반도 없음"이 된다.
+
+test("'>'를 빠뜨린 태그가 다음 요소를 속성으로 삼키지 않는다", () => {
+  const bad = '<figure style="margin:1.5em 0" '
+    + '<img src="https://x/photo-01.webp" width="1024" height="768" alt="외관" loading="lazy">'
+    + '</figure>';
+  const { root, errors } = parseHtml(bad);
+  assert.equal(errors.length, 1, `오류가 보고되지 않음: ${JSON.stringify(errors)}`);
+  assert.equal(errors[0].code, 'malformed-tag');
+  assert.match(errors[0].message, /'>'/);
+  // 삼켜졌던 요소가 살아난다
+  const imgs = findAll(root, 'img');
+  assert.equal(imgs.length, 1, '<img>가 여전히 사라짐');
+  assert.equal(getAttr(imgs[0], 'src'), 'https://x/photo-01.webp');
+  // 속성으로 위장하지 않는다
+  assert.equal(getAttr(findAll(root, 'figure')[0], '<img'), undefined);
+
+  // 정상 태그는 영향 없음
+  assert.deepEqual(parseHtml('<figure style="a"><img src="x.webp"></figure>').errors, []);
+});
+
+test("'<!'로 시작하는 비-DOCTYPE 선언은 오류로 보고한다", () => {
+  // `<!- note` 같은 주석 오타가 다음 '>'까지 통째로 삼켰고 errors는 빈 배열이었다.
+  const { root, errors } = parseHtml('<p>a</p><!- note <img src="x.webp"><p>b</p>');
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].code, 'bogus-declaration');
+  assert.match(errors[0].message, /<!-- -->/);
+  // 삼켜진 범위는 다음 '>'까지 — 즉 <img>가 사라진다. 그래서 오류 보고가 필수다.
+  assert.equal(findAll(root, 'img').length, 0);
+  assert.equal(findAll(root, 'p').length, 2);
+
+  // DOCTYPE과 정상 주석은 조용히 통과
+  assert.deepEqual(parseHtml('<!DOCTYPE html><p>a</p>').errors, []);
+  assert.deepEqual(parseHtml('<!doctype HTML><p>a</p>').errors, []);
+  assert.deepEqual(parseHtml('<p>a</p><!-- 설명 --><p>b</p>').errors, []);
+});
+
+test('빈 주석 <!--> <!---> 은 유효하다 (거짓 빨강 금지)', () => {
+  // 스펙상 유효한 빈 주석인데 unterminated-comment로 보고 문서 나머지를 버렸다.
+  for (const html of ['<p>a</p><!--><p>b</p>', '<p>a</p><!---><p>b</p>', '<p>a</p><!----><p>b</p>']) {
+    const { root, errors } = parseHtml(html);
+    assert.deepEqual(errors, [], `${html}: 거짓 오류`);
+    assert.equal(findAll(root, 'p').length, 2, `${html}: 뒤 내용이 버려짐`);
+  }
+  // 진짜로 닫히지 않은 주석은 여전히 오류다
+  assert.equal(parseHtml('<p>a</p><!-- 안 닫힘').errors[0].code, 'unterminated-comment');
+});
+
+test('닫는 태그에 잡다한 것이 붙어도 raw text 요소를 닫는다', () => {
+  // `</script foo>`를 못 닫으면 문서 나머지가 script 본문으로 삼켜진다.
+  const { root, errors } = parseHtml('<p>a</p><script>x=1;</script foo><p>b</p>');
+  assert.deepEqual(errors, []);
+  assert.equal(findAll(root, 'p').length, 2);
+});

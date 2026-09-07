@@ -3,7 +3,7 @@ require('dotenv').config();
 const axios = require('axios');
 const { getArg, validateKnownFlags } = require('../lib/cli-args');
 const { getPost, deletePost } = require('../lib/blogger');
-const { errFull } = require('../lib/err-text');
+const { errExitCode, errFull } = require('../lib/err-text');
 
 function printUsage() {
   console.log('Usage: node delete-post.js --post-id ID [--draft-only] [--keep-trash]');
@@ -90,5 +90,5 @@ main().catch((err) => {
   if (err.response?.data) {
     console.error('API response:', JSON.stringify(err.response.data));
   }
-  process.exit(err.exitCode || 1);
+  process.exit(errExitCode(err) || 1);
 });

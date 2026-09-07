@@ -189,3 +189,79 @@ test('전체 워크플로우 시나리오', (t) => {
   assert.equal(s.post_id, '123');
   assert.equal(s.post_url, 'https://x/2026-05-10.html');
 });
+
+// --- 7차 리뷰 회귀 ---
+
+test('post_id가 있는데 draft가 완료가 아니면 잡는다 (prefix 검사만으로는 못 잡음)', () => {
+  // `completed=[]`는 유효한 prefix라서 `completed=[] && post_id != null`이
+  // 통과했다. 그 상태는 steps_completed가 문자열로 손상됐을 때 정확히
+  // 만들어지고(빈 배열로 강등), 재개 규칙은 remaining[0]='exif'로 점프한다 —
+  // Blogger에 글이 이미 있는데 처음부터 다시 돌려 두 번째 글을 만든다.
+  const warnOf = (raw) => normalizeState(raw, { slug: raw.slug }).warnings
+    .filter((w) => !/schema_version/.test(w));
+
+  assert.match(warnOf({ slug: 'a', steps_completed: [], post_id: '555' })[0], /draft가 완료로 표시돼 있지 않/);
+  assert.match(warnOf({ slug: 'b', steps_completed: 'exif,upload,draft', post_id: '555' }).join('\n'),
+    /draft가 완료로 표시돼 있지 않/);
+  // 정상 상태는 조용하다
+  assert.deepEqual(warnOf({
+    slug: 'c',
+    steps_completed: ['exif', 'photo_analysis', 'upload', 'research', 'draft'],
+    post_id: '555',
+  }), []);
+  assert.deepEqual(warnOf({ slug: 'd', steps_completed: ['exif'] }), []);
+
+  // 쓰기 경로는 거부한다
+  assert.throws(
+    () => normalizeState({ slug: 'e', steps_completed: [], post_id: '1' }, { slug: 'e', strict: true }),
+    (err) => err.exitCode === 9,
+  );
+});
+
+test('workflow-steps.md가 지시하는 호출 순서가 전부 통과한다', () => {
+  // 불변식이 정상 워크플로우를 막으면 그것도 결함이다. Step 3 → 5 → 7의
+  // 실제 인자 조합을 그대로 재현한다 (--post-id 포함).
+  const seq = [
+    { steps_completed: ['exif', 'photo_analysis', 'upload'] },
+    { steps_completed: ['exif', 'photo_analysis', 'upload', 'research', 'draft'], post_id: '999' },
+    {
+      steps_completed: ['exif', 'photo_analysis', 'upload', 'research', 'draft', 'publish'],
+      post_id: '999',
+      post_url: 'https://x/2026-05-10.html',
+    },
+  ];
+  for (const fields of seq) {
+    const raw = { schema_version: 1, slug: 'flow', ...fields };
+    const { warnings } = normalizeState(raw, { slug: 'flow', strict: true });
+    assert.deepEqual(warnings, [], `정상 단계를 막음: ${JSON.stringify(fields)}`);
+  }
+});
+
+test('schema_version — 미래 버전 파일을 옛 의미로 덮어쓰지 않는다', () => {
+  // 예전에는 undefined만 검사해서 2·99·null·"1"이 경고 없이 통과하고 그대로
+  // 재기록됐다 — v1 코드가 v2 파일에 v1 의미를 적용하면서 파일은 계속 v2를 주장한다.
+  assert.throws(() => normalizeState({ slug: 'a', schema_version: 2 }, { slug: 'a' }),
+    /더 새 버전이 만든 파일/);
+  assert.throws(() => normalizeState({ slug: 'a', schema_version: 99 }, { slug: 'a' }),
+    /더 새 버전이 만든 파일/);
+  // 손상된 값은 경고 후 1로 간주 (읽기는 관대하게)
+  for (const bad of [null, '1', {}, 0, -1]) {
+    const { state, warnings } = normalizeState({ slug: 'a', schema_version: bad }, { slug: 'a' });
+    assert.equal(state.schema_version, 1, JSON.stringify(bad));
+    assert.ok(warnings.some((w) => /schema_version/.test(w)), JSON.stringify(bad));
+    // 쓰기는 거부
+    assert.throws(
+      () => normalizeState({ slug: 'a', schema_version: bad }, { slug: 'a', strict: true }),
+      /덮어쓰지 않고 중단/,
+      JSON.stringify(bad),
+    );
+  }
+});
+
+test('steps_remaining 비배열이 틀린 배열보다 조용하지 않다 (심각도 역전 방지)', () => {
+  const warnOf = (raw) => normalizeState(raw, { slug: raw.slug }).warnings
+    .filter((w) => /steps_remaining/.test(w));
+  assert.equal(warnOf({ slug: 'a', steps_completed: ['exif'], steps_remaining: '손상' }).length, 1);
+  assert.equal(warnOf({ slug: 'a', steps_completed: ['exif'], steps_remaining: ['틀림'] }).length, 1);
+  assert.equal(warnOf({ slug: 'a', steps_completed: ['exif'] }).length, 0);
+});

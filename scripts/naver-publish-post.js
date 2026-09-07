@@ -14,6 +14,7 @@ require('dotenv').config();
 
 const { NAVER_EXIT, NaverError, reportNaverError } = require('../lib/naver-errors');
 const { isVerified, verificationStatus } = require('../lib/naver-selectors');
+const { errExitCode } = require('../lib/err-text');
 
 function printUsage() {
   console.log('Usage: node naver-publish-post.js --draft-title "제목" [--visibility private|public]');
@@ -58,6 +59,6 @@ if (require.main === module) {
     main();
   } catch (err) {
     reportNaverError(err);
-    process.exit(err.exitCode || 1);
+    process.exit(errExitCode(err) || 1);
   }
 }

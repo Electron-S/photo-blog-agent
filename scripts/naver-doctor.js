@@ -8,7 +8,7 @@ require('dotenv').config();
 
 const fs = require('fs');
 const { NAVER_EXIT, reportNaverError } = require('../lib/naver-errors');
-const { errFull, errText } = require('../lib/err-text');
+const { errExitCode, errFull, errText } = require('../lib/err-text');
 const { isVerified, verificationStatus } = require('../lib/naver-selectors');
 const {
   assertLoggedIn, browserExecutable, displayAvailable, openContext, profileDir, requirePlaywright,
@@ -149,7 +149,7 @@ async function main() {
       for (const line of errFull(err).split('\n').slice(1)) {
         if (line.trim()) console.log(`      ${line.trim()}`);
       }
-      fail(err.exitCode || NAVER_EXIT.SESSION);
+      fail(errExitCode(err) || NAVER_EXIT.SESSION);
     } finally {
       if (context) await context.close().catch(() => {});
     }
@@ -174,6 +174,6 @@ async function main() {
 if (require.main === module) {
   main().catch((err) => {
     reportNaverError(err);
-    process.exit(err.exitCode || 1);
+    process.exit(errExitCode(err) || 1);
   });
 }
