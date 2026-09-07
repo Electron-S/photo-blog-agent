@@ -25,9 +25,10 @@ argument-hint: [선택: 첫 메모나 지시사항]
 
 위 "진행 중인 세션"·"대기 중 사진" 스캔 결과를 순서대로 보고 분기합니다.
 
-**0순위 — 진행 중 세션이 있으면** ("(진행 중 세션 없음)"이 아니면):
+**0순위 — 진행 중 세션이 있으면** (위 출력에 `(진행 중 세션 없음)` 줄이 **없으면**):
 - 가장 최근(보통 한 개) session-state 파일의 `slug`·`steps_completed`·`steps_remaining`·`post_id`를 사용자에게 한두 문장으로 요약: "진행 중 세션 '<slug>'를 발견했어요. 완료: ○○○, 남은 단계: ○○○. 이어서 진행할까요, 처음부터 다시 할까요?"
 - 사용자가 **"이어서"** → `node scripts/session-state.js read --slug <slug>`로 상태를 읽고 `steps_remaining[0]`에 해당하는 단계로 점프 (Step 매핑은 아래 워크플로우 섹션 참고)
+  - **exit 9가 나오면 재개하지 않습니다.** 상태 파일의 불변식이 깨진 것이라 `steps_remaining`을 믿을 수 없습니다 (이미 발행된 글을 처음부터 다시 만들 수 있습니다). 출력된 경고와 JSON의 `degraded: true`를 사용자에게 보여주고, 무엇이 실제로 끝났는지 확인한 뒤 `update --complete`로 고치고 다시 시도합니다.
 - 사용자가 **"처음부터"** → 해당 session-state 파일과 동일 slug의 `draft-<slug>.html`을 사용자 확인 후 `rm`. metadata/photo-analysis는 EXIF/시각분석이 멱등하므로 그대로 두고 새 세션 시작
 - 여러 session-state 파일이 있으면 사용자에게 어느 것을 이어갈지 명시적으로 물음
 

@@ -630,3 +630,62 @@ test('figure가 컨테이너 안에 있어도 뒤 문장을 센다 (error 오탐
   // 진짜로 뒤에 아무것도 없으면 여전히 잡는다
   assert.deepEqual(figErrors(FIGURE), ['text-after-figure']);
 });
+
+test('래퍼로 감싼 figure/h3도 경계로 인식한다 (오탐을 미탐으로 바꾸지 않는다)', () => {
+  // followingSiblings가 래퍼를 **넘어가기만** 하고 래퍼 노드를 그대로 내보내면,
+  // `n.tag === 'figure'` 경계 판정이 `div`를 보고 break하지 않는다. 그러면 스캔이
+  // 다음 이미지를 넘어 문서 끝까지 가서 text-after-figure(error)가 진짜 위반을
+  // 놓친다 — Blogger 웹 에디터는 **모든** 이미지를 래핑하므로, 그 경우 이 규칙이
+  // 마지막 figure를 빼고 사실상 무력해진다. 오탐을 미탐으로 바꾸는 것은 더 나쁘다.
+  const FIGURE = (n) => '<figure style="margin:1.5em 0;text-align:center;position:relative;">'
+    + `<img src="https://x/photo-0${n}.webp" width="1024" height="768" loading="lazy" `
+    + `alt="사진 ${n} 설명" style="max-width:100%;height:auto;">`
+    + `<figcaption>해질녘 가게 앞 풍경 ${n}입니다</figcaption></figure>`;
+
+  const body = (wrap) => {
+    const w = (x) => (wrap ? `<div class="separator">${x}</div>` : x);
+    return `${w(FIGURE(1))}<p>한 문장뿐.</p>${w(FIGURE(2))}<p>문장A. 문장B. 문장C.</p>`;
+  };
+  const plain = lintDraftHtml(body(false), {});
+  const wrapped = lintDraftHtml(body(true), {});
+
+  // 래핑 유무와 무관하게 **같은** 판정이어야 한다
+  assert.deepEqual(wrapped.stats.sentencesAfterFigure, plain.stats.sentencesAfterFigure);
+  assert.deepEqual(wrapped.stats.sentencesAfterFigure, [1, 3]);
+  assert.ok(wrapped.errors.some((e) => e.rule === 'text-after-figure'),
+    '래핑하면 진짜 위반을 놓침');
+
+  // h3 경계도 래퍼를 넘어서 본다
+  const h3 = (wrap) => {
+    const w = (x) => (wrap ? `<div class="separator">${x}</div>` : x);
+    return `${FIGURE(1)}${w('<h3>바로 다음 제목</h3>')}<p>본문. 둘째.</p>`;
+  };
+  for (const wrap of [false, true]) {
+    assert.ok(lintDraftHtml(h3(wrap), {}).errors.some((e) => e.rule === 'no-h3-after-figure'),
+      `${wrap ? '래핑된' : '평면'} h3를 놓침`);
+  }
+});
+
+test('방문 동사는 단어 시작이어야 한다 (합성 이동동사 오탐 방지)', () => {
+  // `갔`은 합성 이동동사의 뒷음절로도 나타난다 — 내려갔/지나갔/넘어갔/돌아갔.
+  // 사정거리를 넓히면서 그것들이 창에 들어와 정당한 문장을 error로 막았다.
+  // stem 목록에 예외를 열거하는 대신 **경계**를 요구한다.
+  const hit = (text) => lintDraftHtml(`<p>${text}</p>`, {}).errors
+    .some((e) => e.rule === 'no-writing-date-expression');
+
+  for (const ok of [
+    '오늘 기준 가격이 조금 내려갔어요.',
+    '어제 밤에 기온이 영하로 내려갔다고 뉴스에 나왔습니다.',
+    '지금은 리모델링으로 간판이 내려갔다고 합니다.',
+    '오늘 하루가 어떻게 지나갔는지 모르겠다.',
+    '어제 그 앞을 몇 번이나 지나갔다.',
+    '오늘 계단을 걸어 내려갔다.',
+  ]) {
+    assert.equal(hit(ok), false, `오탐(발행 불가): ${ok}`);
+  }
+
+  // 단어 시작인 진짜 위반은 여전히 잡는다
+  for (const bad of ['오늘 날씨가 좋아서 공원에 갔다', '어제 그 카페에 갔다', '오늘 다녀왔습니다']) {
+    assert.equal(hit(bad), true, `놓침: ${bad}`);
+  }
+});

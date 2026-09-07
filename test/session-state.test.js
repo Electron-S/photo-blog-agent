@@ -161,16 +161,13 @@ test('listStates — 정상과 손상을 함께 보고', (t) => {
   assert.ok(all[1].error);
 });
 
-test('listStates — "경로 오타"와 "세션 없음"을 구별한다', () => {
-  const missing = path.join(os.tmpdir(), 'pba-does-not-exist-xyz');
-  // 기본 tmp/가 아직 없는 것(갓 클론한 저장소)은 정상 — 빈 배열
-  assert.deepEqual(listStates(missing), []);
-  // --dir를 명시했는데 없으면 오타다. 조용히 "세션 없음"으로 보고하면
-  // /blog 진입 프로브가 진행 중인 작업을 못 보고 처음부터 재실행한다.
-  assert.throws(
-    () => listStates(missing, { explicit: true }),
-    (err) => err.exitCode === 9 && /상태 디렉터리가 없습니다/.test(err.message),
-  );
+test('listStates — 디렉터리가 없으면 빈 배열 ("세션이 없다"는 참이다)', () => {
+  // 한때 --dir를 명시했는데 없으면 throw했다. 그런데 유일한 호출자인
+  // .claude/commands/blog.md의 진입 프로브가 **항상** 절대경로 --dir를 넘기고
+  // tmp/는 .gitignore 대상이라 갓 클론한 저장소에는 없다 — 처음 /blog를 켜면
+  // 존재하지 않는 세션에 대해 "이어서 진행할까요?"를 묻게 됐다.
+  // 경로 오타는 CLI가 stderr 주석으로 알리고, 판정은 "세션 없음"으로 둔다.
+  assert.deepEqual(listStates(path.join(os.tmpdir(), 'pba-does-not-exist-xyz')), []);
 });
 
 test('전체 워크플로우 시나리오', (t) => {

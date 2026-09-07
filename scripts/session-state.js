@@ -7,6 +7,8 @@
 
 require('dotenv').config();
 
+const fs = require('fs');
+
 const {
   STEPS, SessionStateError, defaultState, listStates, markCompleted,
   readState, statePath, touch, writeStateAtomic,
@@ -128,9 +130,14 @@ function main() {
   const dir = get('--dir') || 'tmp';
 
   if (sub === 'list') {
-    const all = listStates(dir, { explicit: get('--dir') !== null });
+    const all = listStates(dir);
     if (all.length === 0) {
+      // **마커는 stdout에 고정한다.** blog.md의 진입 프로브가 이 문자열로 분기한다.
       console.log('(진행 중 세션 없음)');
+      // 경로 오타를 조용히 "세션 없음"으로 읽지 않도록 어디를 봤는지 남긴다.
+      if (!fs.existsSync(dir)) {
+        console.error(`  (참고: 상태 디렉터리가 아직 없습니다 — ${dir})`);
+      }
       return;
     }
     // **경고를 버리지 않는다.** `/blog` 진입 프로브(.claude/commands/blog.md)가
@@ -251,10 +258,21 @@ function main() {
     return;
   }
 
+  // **--field만 막는 것으로는 부족했다.** blog.md의 재개 경로는 `read --slug`
+  // (전체 JSON)이고 --field는 저장소에 호출자가 없다. 경고는 stderr이라
+  // `steps_remaining[0]`으로 점프하는 재개 규칙이 그대로 EXIF부터 재실행할 수 있다 —
+  // 이미 post_id가 있는데. 상태는 그대로 출력하되(사람이 봐야 한다) exit 9로 알린다.
+  const out = existing.degraded ? { ...existing.state, degraded: true } : existing.state;
   if (format === 'text') {
-    console.log(summarize(existing.state));
+    console.log(summarize(out) + (existing.degraded ? ' | degraded=true' : ''));
   } else {
-    console.log(JSON.stringify(existing.state, null, 2));
+    console.log(JSON.stringify(out, null, 2));
+  }
+  if (existing.degraded) {
+    console.error('Error: 상태 파일의 불변식이 깨져 있습니다 (위 경고 참조).');
+    console.error('  + 이대로 재개하면 이미 끝난 단계를 다시 실행할 수 있습니다.');
+    console.error('  + --complete / --post-id 로 고친 뒤 다시 시도하세요.');
+    process.exit(9);
   }
 }
 

@@ -436,20 +436,53 @@ test('session-state read --field: 손상은 exit 9, 프로토타입 필드는 ex
   assert.equal(run2(['read', '--slug', 'ok', '--field', 'slug', '--format', 'bogus']).status, 1);
 });
 
-test('session-state list: --dir 오타를 "세션 없음"으로 보고하지 않는다', (t) => {
+test('session-state list: 마커는 stdout에 고정, 경로 주석은 stderr', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-ss3-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-  // 빈 디렉터리는 정상적으로 "없음"
+  // .claude/commands/blog.md의 진입 프로브가 이 마커로 분기한다. 갓 클론한
+  // 저장소에는 tmp/가 없으므로(gitignore), 그 경우에도 마커가 나와야 한다 —
+  // 아니면 존재하지 않는 세션에 대해 "이어서 진행할까요?"를 묻게 된다.
   const empty = run('session-state.js', ['list', '--dir', dir]);
   assert.equal(empty.status, 0);
-  assert.match(empty.stdout, /진행 중 세션 없음/);
+  assert.match(empty.stdout, /\(진행 중 세션 없음\)/);
 
-  // 없는 경로를 명시하면 실패로 알린다 — /blog 진입 프로브가 진행 중인 작업을
-  // 못 보고 처음부터 재실행하는 것을 막는다
-  const typo = run('session-state.js', ['list', '--dir', path.join(dir, 'nope')]);
-  assert.equal(typo.status, 9, `status=${typo.status}`);
-  assert.match(typo.stderr, /상태 디렉터리가 없습니다/);
+  const missing = run('session-state.js', ['list', '--dir', path.join(dir, 'nope')]);
+  assert.equal(missing.status, 0, `status=${missing.status}`);
+  assert.match(missing.stdout, /\(진행 중 세션 없음\)/, '마커가 stdout에 없음');
+  // 어디를 봤는지는 남긴다 — 경로 오타를 조용히 "세션 없음"으로 읽지 않도록
+  assert.match(missing.stderr, /상태 디렉터리가 아직 없습니다/);
+});
+
+test('session-state read --slug: 손상 상태는 exit 9 + degraded 표시', (t) => {
+  // --field만 막는 것으로는 부족했다. blog.md의 재개 경로는 `read --slug`이고
+  // --field는 저장소에 호출자가 없다. 경고가 stderr이라 steps_remaining[0]으로
+  // 점프하는 재개 규칙이 이미 발행된 글을 처음부터 다시 만들 수 있었다.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-ss4-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, 'session-state-hole.json'), JSON.stringify({
+    schema_version: 1,
+    slug: 'hole',
+    steps_completed: ['draft', 'publish'],
+    steps_remaining: [],
+    post_id: '123',
+  }), 'utf8');
+  fs.writeFileSync(path.join(dir, 'session-state-ok.json'), JSON.stringify({
+    schema_version: 1,
+    slug: 'ok',
+    steps_completed: ['exif'],
+    steps_remaining: ['photo_analysis', 'upload', 'research', 'draft', 'publish'],
+  }), 'utf8');
+
+  const hole = run('session-state.js', ['read', '--slug', 'hole', '--dir', dir]);
+  assert.equal(hole.status, 9, `status=${hole.status}`);
+  // 상태는 그대로 출력한다 — 사람이 무엇이 깨졌는지 봐야 한다
+  assert.equal(JSON.parse(hole.stdout).degraded, true);
+  assert.match(hole.stderr, /재개하면/);
+
+  const ok = run('session-state.js', ['read', '--slug', 'ok', '--dir', dir]);
+  assert.equal(ok.status, 0);
+  assert.equal(JSON.parse(ok.stdout).degraded, undefined, '정상 상태에 degraded가 붙음');
 });
 
 test('naver:draft — --dry-run이 공개 발행 게이트를 우회하지 않는다', () => {

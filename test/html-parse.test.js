@@ -245,3 +245,29 @@ test("따옴표 없는 속성값에서도 '<'가 종료 문자다", () => {
   assert.deepEqual(parseHtml('<img alt="1<2" src="a.webp">').errors, []);
   assert.equal(getAttr(findAll(parseHtml('<img alt="1<2" src="a.webp">').root, 'img')[0], 'alt'), '1<2');
 });
+
+test('followingSiblings — 래퍼를 평탄화해 내부 요소를 내보낸다', () => {
+  const { followingSiblings } = require('../lib/html-parse');
+  const tagsAfter = (html, sel) => {
+    const { root } = parseHtml(html);
+    const target = findAll(root, sel)[0];
+    return followingSiblings(target)
+      .filter((n) => n.type === 'element')
+      .map((n) => n.tag);
+  };
+
+  // 래퍼는 사라지고 내부 요소가 나온다 — 그래야 호출자의 tag 기반 경계 판정이 산다
+  assert.deepEqual(tagsAfter('<figure></figure><div><h3>x</h3></div><p>y</p>', 'figure'),
+    ['h3', 'p']);
+  assert.deepEqual(tagsAfter('<figure></figure><div><section><figure></figure></section></div>', 'figure'),
+    ['figure']);
+  // 래퍼가 아닌 요소는 그대로
+  assert.deepEqual(tagsAfter('<figure></figure><ul><li>x</li></ul>', 'figure'), ['ul']);
+  // 자기가 래퍼 안에 있으면 밖으로 이어서 본다
+  assert.deepEqual(tagsAfter('<div><figure></figure></div><p>y</p>', 'figure'), ['p']);
+  // 깊은 중첩에서도 무한 루프하지 않는다
+  assert.deepEqual(tagsAfter('<div><div><div><figure></figure></div></div></div><p>y</p>', 'figure'),
+    ['p']);
+  // root 직속에서 뒤에 아무것도 없으면 빈 배열
+  assert.deepEqual(tagsAfter('<p>a</p><figure></figure>', 'figure'), []);
+});
