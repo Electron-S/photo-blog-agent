@@ -11,6 +11,7 @@ const {
   STEPS, SessionStateError, defaultState, listStates, markCompleted,
   readState, statePath, touch, writeStateAtomic,
 } = require('../lib/session-state');
+const { errFull } = require('../lib/err-text');
 
 const SUBCOMMANDS = ['init', 'update', 'read', 'list'];
 const FLAGS_WITH_VALUE = new Set([
@@ -125,8 +126,24 @@ function main() {
       console.log('(진행 중 세션 없음)');
       return;
     }
+    // **경고를 버리지 않는다.** `/blog` 진입 프로브(.claude/commands/blog.md)가
+    // 이 출력만 보고 "이어서/처음부터"를 사용자에게 묻는다. 예전에는 warnings를
+    // 손대지 않아서, steps_completed가 문자열로 손상된 파일 — CLAUDE.md가 "손으로
+    // 동기화하면 재개가 조용히 깨진다"고 경고한 그 형태 — 이 `completed=-`로,
+    // 즉 **완전히 새 세션으로** 요약됐다. 완료된 단계가 조용히 소멸하고 두 번째
+    // 초안이 만들어진다.
+    let warned = 0;
     for (const s of all) {
       console.log(s.error ? `slug=${s.slug} | 손상: ${s.error}` : summarize(s.state));
+      for (const w of s.warnings || []) {
+        warned += 1;
+        for (const line of String(w).split('\n')) console.log(`  경고: ${line.trim()}`);
+      }
+    }
+    if (warned) {
+      console.log('');
+      console.log(`※ 경고 ${warned}건 — 위 요약이 파일 내용과 다를 수 있습니다.`);
+      console.log('   재개 전에 `session-state.js read --slug <slug>`로 실제 상태를 확인하세요.');
     }
     return;
   }
@@ -210,7 +227,7 @@ if (require.main === module) {
   try {
     main();
   } catch (err) {
-    console.error(`session-state 실패: ${err.message}`);
+    console.error(`session-state 실패: ${errFull(err)}`);
     process.exit(err.exitCode || 1);
   }
 }

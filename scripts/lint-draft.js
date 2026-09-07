@@ -6,6 +6,7 @@ require('dotenv').config();
 
 const fs = require('fs');
 const { lintDraftHtml, formatLintReport, validateUploadResult } = require('../lib/lint-draft');
+const { errFull } = require('../lib/err-text');
 
 const FLAGS_WITH_VALUE = new Set(['--upload-result', '--format']);
 const BOOLEAN_FLAGS = new Set(['--strict']);
@@ -59,13 +60,13 @@ function readJson(path, label) {
   try {
     raw = fs.readFileSync(path, 'utf8');
   } catch (err) {
-    console.error(`Error: ${label} 파일을 읽을 수 없음 (${path}): ${err.message}`);
+    console.error(`Error: ${label} 파일을 읽을 수 없음 (${path}): ${errFull(err)}`);
     process.exit(1);
   }
   try {
     return JSON.parse(raw);
   } catch (err) {
-    console.error(`Error: ${label} JSON 파싱 실패 (${path}): ${err.message}`);
+    console.error(`Error: ${label} JSON 파싱 실패 (${path}): ${errFull(err)}`);
     process.exit(1);
   }
   return null;
@@ -88,7 +89,7 @@ function main() {
   try {
     html = fs.readFileSync(draftPath, 'utf8');
   } catch (err) {
-    console.error(`Error: 초안 파일을 읽을 수 없음 (${draftPath}): ${err.message}`);
+    console.error(`Error: 초안 파일을 읽을 수 없음 (${draftPath}): ${errFull(err)}`);
     process.exit(1);
   }
 

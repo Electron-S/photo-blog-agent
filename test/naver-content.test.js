@@ -153,7 +153,23 @@ test('summarizeBlocks', () => {
   const { blocks } = htmlToBlocks(`<p>가나다.</p>${FIG(1)}<h3>제목</h3><p>라마.</p>`);
   assert.deepEqual(summarizeBlocks(blocks), {
     total: 4, headings: 1, paragraphs: 2, images: 1, chars: '가나다.제목라마.'.length,
+    hardBreaks: 0,
   });
+});
+
+test('summarizeBlocks — hardBreaks가 출력 계약을 눈에 보이게 한다', () => {
+  // 파일 헤더의 계약: text의 '\n'은 Shift+Enter로 넣어야 하는 하드 개행이다.
+  // 그 수가 dry-run에 안 보이면, 에디터 레이어가 Enter로 처리해 문단 수가
+  // 달라져도 아무도 눈치채지 못한다.
+  const { blocks } = htmlToBlocks('<h2>가<br>나</h2><p>다<br>라<br>마</p>');
+  assert.equal(summarizeBlocks(blocks).hardBreaks, 3);
+  // 소스 줄바꿈은 하드 개행이 아니다
+  assert.equal(summarizeBlocks(htmlToBlocks('<p>가\n나</p>').blocks).hardBreaks, 0);
+  // 이미지 필드에는 개행이 없다는 계약
+  const img = htmlToBlocks(`${FIG(1)}`).blocks[0];
+  for (const field of ['alt', 'caption', 'src']) {
+    assert.ok(!img[field].includes('\n'), `image.${field}에 개행이 있다`);
+  }
 });
 
 // --- 4차 리뷰에서 확인된 결함들의 회귀 고정 ---
@@ -244,9 +260,12 @@ test('htmlToBlocks — figure/ul이 허용 밖 자식을 조용히 버리지 않
 test('빈 줄 스페이서 <p><br></p>는 블록을 만들지 않는다 (&nbsp; 관용구와 같은 결과)', () => {
   // 이전 구현은 조각별로만 trim하고 join 뒤를 trim하지 않아 text="\n"인
   // 빈 문단·빈 제목·내용 없는 불릿("- ")을 만들었다. 에디터에 그대로 타이핑된다.
-  for (const html of ['<p><br></p>', '<h2><br></h2>', '<h3><br></h3>', '<ul><li><br></li></ul>']) {
+  for (const html of ['<p><br></p>', '<h2><br></h2>', '<h3><br></h3>']) {
     assert.deepEqual(htmlToBlocks(html).blocks, [], `${html} 가 빈 블록을 만듦`);
   }
+  // <li>는 다르다. 빈 문단은 스페이서 관용구지만 빈 목록 항목은 저작 오류이고,
+  // 평문화하면 그 항목이 소멸한다 (번호가 있으면 이후 번호까지 어긋난다).
+  assert.throws(() => htmlToBlocks('<ul><li><br></li></ul>'), /내용이 없는 <li>/);
   // 같은 목적의 &nbsp; 스페이서와 결과가 같아야 한다
   assert.deepEqual(htmlToBlocks('<p>&nbsp;</p>').blocks, []);
   // 앞뒤 <br>만 정리하고 **중간의 의도된 빈 줄은 보존**한다
@@ -324,4 +343,107 @@ test('links[].href는 본문에 박히는 문자열과 글자 단위로 같다',
   const blank = htmlToBlocks('<p><a href="   ">L</a></p>');
   assert.deepEqual(blank.links, []);
   assert.equal(blank.blocks[0].text, 'L');
+});
+
+// --- 6차 리뷰 회귀 ---
+//
+// 5차가 "조각 배열로 바꿔 위치 의존성을 없앴다"고 선언했는데, 판정 기준이 여전히
+// **열거**로 남아 있던 곳들이다. 테스트도 열거가 아니라 클래스로 확인한다.
+
+test('보이지 않는 문자는 코드포인트 목록이 아니라 카테고리로 제거된다 (Cc + Cf)', () => {
+  // C0만 지우던 규칙에 Cf 전체가 새고 있었다. 근거("보이지 않는다 + 에디터
+  // 페이로드에 실린다")가 같은데 판정이 "내가 적어둔 구간에 있나"였기 때문이다.
+  // U+202E(RLO)는 이후 문단을 시각적으로 역전시키는 bidi 스푸핑 문자다.
+  const INVISIBLE = [
+    0x0000, 0x0008, 0x001B, 0x007F, 0x0085, // Cc
+    0x00AD, 0x200B, 0x200C, 0x200D, 0x200E, 0x200F,
+    0x202A, 0x202E, 0x2060, 0x2066, 0x2069, 0xFEFF, 0x061C, 0xE0001, // Cf
+  ];
+  for (const cp of INVISIBLE) {
+    const text = htmlToBlocks(`<p>가&#${cp};나</p>`).blocks[0].text;
+    assert.equal(text, '가나', `U+${cp.toString(16).toUpperCase()} 잔존: ${JSON.stringify(text)}`);
+  }
+  // 8개 위치 전부에서 같아야 한다 — 파이프라인 통합의 요점
+  const probe = (wrap) => htmlToBlocks(wrap.replace('%s', '가&#8203;나')).blocks[0];
+  for (const wrap of ['<p>%s</p>', '<div>%s</div>', '<h3>%s</h3>', '<p><strong>%s</strong></p>',
+    '<ul><li>%s</li></ul>', '<p><a href="https://x/">%s</a></p>']) {
+    assert.match(probe(wrap).text, /가나/, `${wrap} 에서 ZWSP 잔존`);
+  }
+  const fig = htmlToBlocks('<figure><img src="a&#8203;.webp" alt="가&#8203;나"><figcaption>가&#8203;나</figcaption></figure>').blocks[0];
+  assert.equal(fig.alt, '가나');
+  assert.equal(fig.caption, '가나');
+  assert.equal(fig.src, 'a.webp');
+
+  // 공백류(Cc지만 \s)는 제거가 아니라 공백 1칸으로 접힌다 — 단어가 붙지 않게
+  for (const cp of [0x09, 0x0A, 0x0B, 0x0C, 0x0D]) {
+    assert.equal(htmlToBlocks(`<p>가&#${cp};나</p>`).blocks[0].text, '가 나',
+      `U+${cp.toString(16)} 가 제거돼 단어가 붙음`);
+  }
+  // 보이는 문자는 건드리지 않는다
+  assert.equal(htmlToBlocks('<p>가漢a1·※℃—…</p>').blocks[0].text, '가漢a1·※℃—…');
+});
+
+test('URL 구분자는 조각 안의 공백이 아니라 결합 시점에 넣는다', () => {
+  // literal이 ` (url)`처럼 선행 공백을 품고 있으면, 그 조각이 줄의 첫 조각일 때
+  // 마지막 trim이 공백을 먹는다. 주석이 "이미 trim된 상태라 재적용이 무해하다"고
+  // 선언했던 불변식이 여기서 거짓이었다.
+  const t = (h) => htmlToBlocks(h).blocks[0].text;
+  assert.equal(t('<p>보기 <a href="https://x/">링크</a> 끝</p>'), '보기 링크 (https://x/) 끝');
+  assert.equal(t('<p>앞<a href="https://x/"></a>뒤</p>'), '앞 (https://x/)뒤');
+  // </a> 뒤는 붙는 것이 맞다 — 한국어 조사가 그렇게 온다
+  assert.equal(t('<p>공식 <a href="https://x/">홈페이지</a>를 보자.</p>'), '공식 홈페이지 (https://x/)를 보자.');
+  // URL은 어떤 경우에도 자기 라벨과 붙지 않는다
+  for (const label of ['링크', 'a', '아주 긴 라벨 텍스트']) {
+    assert.match(t(`<p>${label}<a href="https://x/">${label}</a></p>`), /\S \(https:\/\/x\/\)$/);
+  }
+});
+
+test('중첩 <a>는 URL을 두 번 박지 않고 중단한다', () => {
+  // html-parse도 lint도 중첩을 검사하지 않는다. 평문화하면 본문에
+  // "x (안쪽) (바깥쪽)"이 되고 links[]에 두 줄이 쌓여 어느 링크인지 알 수 없다.
+  assert.throws(
+    () => htmlToBlocks('<p><a href="https://1/"><a href="https://2/">x</a></a></p>'),
+    /중첩/,
+  );
+  assert.throws(
+    () => htmlToBlocks('<p><a href="https://1/"><span><a href="https://2/">x</a></span></a></p>'),
+    /중첩/,
+  );
+  // 형제 <a>는 정상
+  const r = htmlToBlocks('<p><a href="https://1/">a</a><a href="https://2/">b</a></p>');
+  assert.equal(r.links.length, 2);
+});
+
+test('<ol>의 순번과 start를 잃지 않고, 빈 <li>를 조용히 버리지 않는다', () => {
+  const texts = (h) => htmlToBlocks(h).blocks.map((b) => b.text);
+  assert.deepEqual(texts('<ul><li>가</li><li>나</li></ul>'), ['- 가', '- 나']);
+  assert.deepEqual(texts('<ol><li>첫째</li><li>둘째</li></ol>'), ['1. 첫째', '2. 둘째']);
+  assert.deepEqual(texts('<ol start="5"><li>다섯째</li></ol>'), ['5. 다섯째']);
+  // 항목이 소멸하면 이후 번호가 어긋난다
+  assert.throws(() => htmlToBlocks('<ol><li>첫째</li><li></li><li>셋째</li></ol>'), /내용이 없는 <li>/);
+  // <li> 안의 <br>은 이어지는 줄이라 접두사를 다시 붙이지 않고 소속을 들여쓰기로 표시
+  assert.deepEqual(texts('<ul><li>가<br>나</li></ul>'), ['- 가\n  나']);
+  assert.deepEqual(texts('<ol><li>가<br>나</li></ol>'), ['1. 가\n   나']);
+});
+
+test('인라인 요소가 블록 위치에 있으면 <p>로 감싸라고 안내한다', () => {
+  // 블록 목록만 나열하면 "<br>은 허용 태그인데 왜 안 되나"로 막힌다.
+  const CASES = {
+    br: '<div>가<br>나</div>',                          // void 태그
+    strong: '<div>가<strong>나</strong></div>',
+    a: '<div>가<a href="https://x/">링크</a></div>',
+    span: '<div>가<span>나</span></div>',
+  };
+  for (const [tag, html] of Object.entries(CASES)) {
+    assert.throws(() => htmlToBlocks(html), /<p>로 감싸세요/, `<${tag}> 안내가 없음`);
+  }
+  // 진짜 허용 밖 블록 요소는 허용 목록을 보여준다
+  assert.throws(() => htmlToBlocks('<table><tr><td>x</td></tr></table>'), /허용되지 않은 블록 요소/);
+});
+
+test('src도 alt·caption과 같은 파이프라인을 탄다', () => {
+  const src = (s) => htmlToBlocks(`<figure><img src="${s}"></figure>`).blocks[0].src;
+  assert.equal(src('p/b&amp;c.webp'), 'p/b&c.webp');   // 디코드 1회
+  assert.equal(src('p/b&#0;.webp'), 'p/b.webp');       // 제어문자 제거
+  assert.equal(src('  p/a.webp  '), 'p/a.webp');       // 공백 정리
 });

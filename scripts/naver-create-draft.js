@@ -15,6 +15,7 @@ const path = require('path');
 const { NAVER_EXIT, NaverError, reportNaverError } = require('../lib/naver-errors');
 const { isVerified, verificationStatus } = require('../lib/naver-selectors');
 const { htmlToBlocks, resolveImagePaths, summarizeBlocks } = require('../lib/naver-content');
+const { errFull } = require('../lib/err-text');
 
 const FLAGS_WITH_VALUE = new Set([
   '--html', '--title', '--category', '--tags', '--visibility', '--image-dir', '--assets-root',
@@ -105,7 +106,7 @@ function main() {
   try {
     html = fs.readFileSync(htmlPath, 'utf8');
   } catch (err) {
-    console.error(`Error: 초안 파일을 읽을 수 없음 (${htmlPath}): ${err.message}`);
+    console.error(`Error: 초안 파일을 읽을 수 없음 (${htmlPath}): ${errFull(err)}`);
     process.exit(1);
   }
 
@@ -122,21 +123,31 @@ function main() {
   console.log('=== 블록 변환 결과 ===');
   console.log(JSON.stringify(summary, null, 2));
   console.log('');
+  // 표는 **한 블록 = 한 줄**이어야 한다. 개행을 그대로 찍으면 번호 없는 유령 행이
+  // 생겨 블록 수를 눈으로 셀 수 없다. 문단만 이스케이프하고 heading·caption·링크는
+  // 안 하던 것이 dry-run(유일하게 동작하는 검증 경로)의 출력을 깨뜨렸다.
+  const oneLine = (t, max = 76) => {
+    const flat = String(t == null ? '' : t).replace(/\n/g, ' ⏎ ');
+    return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+  };
   blocks.forEach((b, i) => {
     const n = String(i + 1).padStart(2, '0');
     if (b.type === 'image') {
-      console.log(`${n} [image]     ${path.basename(b.localPath)}  ← ${b.src}`);
-      console.log(`              caption: ${b.caption || '(없음)'}`);
+      console.log(`${n} [image]     ${path.basename(b.localPath)}  ← ${oneLine(b.src, 60)}`);
+      console.log(`              caption: ${oneLine(b.caption) || '(없음)'}`);
+      // alt가 출력되지 않아, 보이지 않는 문자나 잘못된 대체텍스트가 검증 출력에서도
+      // 안 보였다. 에디터에 들어가는 값은 전부 여기서 눈으로 확인할 수 있어야 한다.
+      console.log(`              alt:     ${oneLine(b.alt) || '(없음)'}`);
     } else if (b.type === 'heading') {
-      console.log(`${n} [h${b.level}]        ${b.text}`);
+      console.log(`${n} [h${b.level}]        ${oneLine(b.text)}`);
     } else {
-      console.log(`${n} [paragraph] ${b.text.replace(/\n/g, ' ⏎ ').slice(0, 76)}`);
+      console.log(`${n} [paragraph] ${oneLine(b.text)}`);
     }
   });
 
   if (links.length) {
     console.log('\n=== 평문화된 링크 (네이버 에디터의 링크 삽입은 별도 UI라 v1에서는 텍스트로 넣습니다) ===');
-    for (const l of links) console.log(`  ${l.text} → ${l.href}`);
+    for (const l of links) console.log(`  ${oneLine(l.text, 40)} → ${oneLine(l.href, 90)}`);
   }
 
   // 카테고리/태그는 본문 에디터가 아니라 [발행] 레이어에 있다. 임시저장만 하는

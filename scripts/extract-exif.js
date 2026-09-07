@@ -12,6 +12,7 @@ const {
   parseExifDate,
   summarizeDates,
 } = require('../lib/exif');
+const { errFull } = require('../lib/err-text');
 
 function printUsage() {
   console.log('Usage: node extract-exif.js <이미지경로1> [이미지경로2] ... [--output <path>]');
@@ -91,7 +92,7 @@ async function main() {
         : info.date ? 'ok' : 'missing';
       photos.push({ ...info, date_status });
     } catch (err) {
-      console.error(`Error reading ${imgPath}: ${err.message}`);
+      console.error(`Error reading ${imgPath}: ${errFull(err)}`);
       photos.push({
         file: path.basename(imgPath),
         date: null,
@@ -146,7 +147,7 @@ async function main() {
       fs.writeFileSync(outputPath, json, 'utf-8');
       console.error(`Metadata saved to ${outputPath}`);
     } catch (err) {
-      console.error(`Error: EXIF extraction succeeded but failed to write ${outputPath}: ${err.message}`);
+      console.error(`Error: EXIF extraction succeeded but failed to write ${outputPath}: ${errFull(err)}`);
       console.error('JSON result was not written to file or stdout — caller must check exit code (2).');
       process.exit(2);
     }
@@ -157,7 +158,7 @@ async function main() {
 
 if (require.main === module) {
   main().catch((err) => {
-    console.error('EXIF extraction failed:', err.message);
+    console.error('EXIF extraction failed:', errFull(err));
     process.exit(1);
   });
 }

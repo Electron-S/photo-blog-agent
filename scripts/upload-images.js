@@ -3,6 +3,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { uploadBlogImages, DEFAULT_MAX_SIZE_KB, MAX_SIZE_KB_LIMIT } = require('../lib/github-assets');
+const { errFull } = require('../lib/err-text');
 
 const args = process.argv.slice(2);
 
@@ -97,14 +98,14 @@ function readMetadataPrimaryDate(metadataPath) {
   try {
     raw = fs.readFileSync(metadataPath, 'utf-8');
   } catch (err) {
-    console.error(`Error: --metadata 파일을 읽을 수 없음 (${metadataPath}): ${err.message}`);
+    console.error(`Error: --metadata 파일을 읽을 수 없음 (${metadataPath}): ${errFull(err)}`);
     process.exit(1);
   }
   let parsed;
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
-    console.error(`Error: --metadata JSON 파싱 실패 (${metadataPath}): ${err.message}`);
+    console.error(`Error: --metadata JSON 파싱 실패 (${metadataPath}): ${errFull(err)}`);
     process.exit(1);
   }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -220,7 +221,7 @@ async function main() {
       fs.writeFileSync(outputPath, json, 'utf-8');
       console.error(`Upload result saved to ${outputPath}`);
     } catch (err) {
-      console.error(`Error: 업로드는 끝났으나 ${outputPath} 쓰기 실패: ${err.message}`);
+      console.error(`Error: 업로드는 끝났으나 ${outputPath} 쓰기 실패: ${errFull(err)}`);
       console.error('결과 JSON은 stdout에만 있습니다 — 호출자는 exit 2를 확인할 것.');
       process.exit(2);
     }
@@ -233,7 +234,7 @@ async function main() {
 main().catch((err) => {
   // publish-post.js와 같은 형태 — message/stack/response.data를 모두 남긴다.
   // 한쪽만 출력하면 결과 매핑 중 TypeError가 났을 때 어느 줄인지 알 수 없다.
-  console.error('Upload failed:', err.message);
+  console.error('Upload failed:', errFull(err));
   if (err.stack) console.error(err.stack);
   if (err.response?.data) console.error('API response:', JSON.stringify(err.response.data));
   process.exit(err.exitCode || 1);

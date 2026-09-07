@@ -12,6 +12,7 @@ require('dotenv').config();
 
 const fs = require('fs');
 const path = require('path');
+const { errFull } = require('../lib/err-text');
 
 const args = process.argv.slice(2);
 
@@ -73,10 +74,10 @@ if (fs.existsSync(outputPath)) {
       backup = `${outputPath}.corrupt-${Date.now()}`;
       fs.copyFileSync(outputPath, backup);
     } catch (copyErr) {
-      console.error(`Error: 손상된 ${outputPath}를 백업하지 못했습니다 (${copyErr.message}). 덮어쓰지 않고 중단합니다.`);
+      console.error(`Error: 손상된 ${outputPath}를 백업하지 못했습니다 (${errFull(copyErr)}). 덮어쓰지 않고 중단합니다.`);
       process.exit(2);
     }
-    console.error(`Warning: existing file ${outputPath} exists but could not be parsed (${err.message}).`);
+    console.error(`Warning: existing file ${outputPath} exists but could not be parsed (${errFull(err)}).`);
     console.error(`  원본을 ${backup} 로 백업하고 새 골격으로 덮어씁니다. 비전 분석 결과가 들어 있었다면 백업을 확인하세요.`);
   }
 }
@@ -123,6 +124,6 @@ try {
   console.error(`Photo analysis skeleton saved to ${outputPath}`);
   console.error(`Next: the running model should Read each photo and Edit the output JSON to fill scene_description/text_visible/notable_objects.`);
 } catch (err) {
-  console.error(`Error: failed to write ${outputPath}: ${err.message}`);
+  console.error(`Error: failed to write ${outputPath}: ${errFull(err)}`);
   process.exit(2);
 }

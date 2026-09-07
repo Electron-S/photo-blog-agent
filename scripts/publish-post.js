@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const { getPost, publishPost, updatePost } = require('../lib/blogger');
 const { getArg, validateKnownFlags } = require('../lib/cli-args');
+const { errFull } = require('../lib/err-text');
 const {
   extractSlugFromUrl,
   loadSlugFromMetadata,
@@ -88,7 +89,7 @@ async function publishWithCustomSlug(postId, slug) {
   } catch (err) {
     // 1단계 PATCH 실패 시 서버가 부분 commit했을 수 있다. 사용자가 Blogger title 상태를
     // 확인할 수 있도록 augmented 안내를 throw 전에 메시지에 실어둔다.
-    err.message = `슬러그 트릭의 첫 PATCH(title=슬러그)가 실패했습니다: ${err.message}\n` +
+    err.message = `슬러그 트릭의 첫 PATCH(title=슬러그)가 실패했습니다: ${errFull(err)}\n` +
       `  + 부분 commit 가능성 — Blogger 에디터에서 post-id ${postId}의 현재 title을 확인하세요.\n` +
       `  + 원본 title: "${originalTitle}". 슬러그 문자열로 남아 있다면 원본으로 수동 복원 후 재시도.`;
     throw err;
@@ -100,7 +101,7 @@ async function publishWithCustomSlug(postId, slug) {
     published = await publishPost(postId);
   } catch (err) {
     console.error('발행 실패. title 복원 시도 중...');
-    const errMsg = (err && err.message) || String(err);
+    const errMsg = (err && errFull(err)) || String(err);
     try {
       // 복원 응답에서 실제 title을 확인 — Blogger의 silent 정규화/truncate가 있으면 그쪽에서도
       // "복원 완료"라는 거짓 메시지가 나가지 않도록 한다 (정상 복원 경로와 대칭).
@@ -116,7 +117,7 @@ async function publishWithCustomSlug(postId, slug) {
       // 슬러그로 백업해 슬러그가 영구 손실되는 멱등성 사고가 난다. exit 7로 분류해
       // 자동화가 "수동 확인 필요"로 분기하도록 강제.
       const wrapped = new Error(
-        `${errMsg}\n  + title 복원도 실패: ${restoreErr.message}\n  + 현재 Blogger title은 "${slug}"로 남아 있음. 원본 title: "${originalTitle}". 수동 복원 후 재시도.`,
+        `${errMsg}\n  + title 복원도 실패: ${errFull(restoreErr)}\n  + 현재 Blogger title은 "${slug}"로 남아 있음. 원본 title: "${originalTitle}". 수동 복원 후 재시도.`,
       );
       wrapped.exitCode = 7;
       throw wrapped;
@@ -139,7 +140,7 @@ async function publishWithCustomSlug(postId, slug) {
     // originalTitle로 백업해버려 슬러그가 영구 손실. exit 7로 분류해 멱등성 보호.
     throw failWithExit(
       7,
-      `발행은 성공했으나 title 복원 실패: ${err.message}\n` +
+      `발행은 성공했으나 title 복원 실패: ${errFull(err)}\n` +
       `  + 현재 Blogger title은 "${slug}"로 남아 있음. 원본 title: "${originalTitle}".\n` +
       `  + 수동 복원: Blogger 에디터에서 post-id ${postId}의 title을 위 원본으로 변경.`,
     );
@@ -205,7 +206,7 @@ async function main() {
     } catch (err) {
       // metadata 로드 실패는 publish 단계 실패와 구분되어야 사용자가 올바른 후속 조치를 한다.
       // JSON parse/readFile 에러의 위치 정보(stack)를 보존해 깨진 파일 라인을 디버그할 수 있게 한다.
-      console.error(`Error: --slug-from-date 로드 실패 — ${err.message}`);
+      console.error(`Error: --slug-from-date 로드 실패 — ${errFull(err)}`);
       if (err.stack) console.error(err.stack);
       process.exit(1);
     }
@@ -246,7 +247,7 @@ if (require.main === module) {
   main().catch((err) => {
     // err.message와 err.response.data를 모두 출력 — 한쪽을 다른 쪽이 덮어 사용자 안내 문구
   // (예: 슬러그 트릭의 수동 복원 가이드)가 silent하게 사라지는 사고를 막는다.
-    console.error('Publish failed:', err.message);
+    console.error('Publish failed:', errFull(err));
     if (err.stack) {
       console.error(err.stack);
     }

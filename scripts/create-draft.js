@@ -5,6 +5,7 @@ const { createDraftPost } = require('../lib/blogger');
 const { getArg, validateKnownFlags } = require('../lib/cli-args');
 const { lintDraftHtml, formatLintReport, validateUploadResult } = require('../lib/lint-draft');
 const { verifyImageUrls } = require('../lib/verify-images');
+const { errFull } = require('../lib/err-text');
 
 function printUsage() {
   console.log('Usage: node create-draft.js --title "제목" --content "HTML 본문" [--labels "라벨1,라벨2"] [--upload-result <upload.json>]');
@@ -47,7 +48,7 @@ async function main() {
     try {
       content = fs.readFileSync(content, 'utf8');
     } catch (err) {
-      console.error(`Error reading content file: ${err.message}`);
+      console.error(`Error reading content file: ${errFull(err)}`);
       process.exit(1);
     }
   }
@@ -61,7 +62,7 @@ async function main() {
     try {
       uploadResult = JSON.parse(fs.readFileSync(uploadResultPath, 'utf8'));
     } catch (err) {
-      console.error(`Error: --upload-result를 읽을 수 없음 (${uploadResultPath}): ${err.message}`);
+      console.error(`Error: --upload-result를 읽을 수 없음 (${uploadResultPath}): ${errFull(err)}`);
       process.exit(1);
     }
     const shape = validateUploadResult(uploadResult, `--upload-result "${uploadResultPath}"`);
@@ -116,7 +117,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('Draft creation failed:', err.message);
+  console.error('Draft creation failed:', errFull(err));
   if (err.response?.data) {
     console.error('API response:', JSON.stringify(err.response.data));
   }

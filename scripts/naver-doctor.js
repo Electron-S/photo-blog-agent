@@ -8,6 +8,7 @@ require('dotenv').config();
 
 const fs = require('fs');
 const { NAVER_EXIT, reportNaverError } = require('../lib/naver-errors');
+const { errFull, errText } = require('../lib/err-text');
 const { isVerified, verificationStatus } = require('../lib/naver-selectors');
 const {
   assertLoggedIn, browserExecutable, displayAvailable, openContext, profileDir, requirePlaywright,
@@ -51,7 +52,7 @@ async function main() {
   } catch (err) {
     // 원인을 버리고 항상 "설치하라"고만 하면, 이미 설치됐는데 로드가 깨진 경우
     // (ABI 불일치 등) 사용자가 같은 명령을 반복하며 원인을 영영 못 본다.
-    record('playwright 모듈', false, `${err.message.split('\n')[0]} — npm install --include=optional`);
+    record('playwright 모듈', false, `${errText(err)} — npm install --include=optional`);
     fail(NAVER_EXIT.MISSING_PLAYWRIGHT);
   }
 
@@ -93,8 +94,8 @@ async function main() {
       // exit 코드를 모드가 아니라 **원인**으로 정한다. 시스템 라이브러리 결손을
       // 17(headed 불가 → WSLg 확인)로 보내면 실제 조치(install-deps)와 무관한
       // 안내가 나간다.
-      const full = String((err && err.message) || err || '');
-      const msg = full.split('\n')[0];
+      const full = errFull(err);
+      const msg = errText(err);
       const missingLib = /error while loading shared libraries|cannot open shared object|Host system is missing dependencies|\.so[.0-9]*: cannot open/i.test(full);
       const noDisplay = /Missing X server|cannot open display|DISPLAY|Target page, context or browser has been closed/i.test(full);
       // 분류되지 않은 실패를 **모드**로 코드를 정해 내보내지 않는다. 폴백이
@@ -140,7 +141,14 @@ async function main() {
       const info = await assertLoggedIn(context, { blogId });
       record('네이버 세션', true, `blogId=${info.blogId}`);
     } catch (err) {
-      record('네이버 세션', false, err.message.split('\n')[0]);
+      // 첫 줄만 쓰면 naver-browser가 붙인 조치 안내("세션 만료와는 다르므로
+      // 재로그인이 답이 아닐 수 있습니다")가 사라지고, 행 이름이 "네이버 세션 —
+      // FAIL"이라 사용자는 결국 재로그인을 시도한다. GENERAL(1)을 고른 이유 자체가
+      // 그 오안내를 막는 것이었으므로, 남은 줄을 들여쓰기해 그대로 보여준다.
+      record('네이버 세션', false, errText(err));
+      for (const line of errFull(err).split('\n').slice(1)) {
+        if (line.trim()) console.log(`      ${line.trim()}`);
+      }
       fail(err.exitCode || NAVER_EXIT.SESSION);
     } finally {
       if (context) await context.close().catch(() => {});

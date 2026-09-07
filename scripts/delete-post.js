@@ -3,6 +3,7 @@ require('dotenv').config();
 const axios = require('axios');
 const { getArg, validateKnownFlags } = require('../lib/cli-args');
 const { getPost, deletePost } = require('../lib/blogger');
+const { errFull } = require('../lib/err-text');
 
 function printUsage() {
   console.log('Usage: node delete-post.js --post-id ID [--draft-only] [--keep-trash]');
@@ -25,7 +26,7 @@ async function verifyUrlGone(url) {
     return { gone: res.status === 404 || res.status === 410, status: res.status };
   } catch (err) {
     // 네트워크 오류는 "404 확인됨"이 아니다 — 판정 불가로 보고한다.
-    return { gone: false, status: 0, error: err.code || err.message };
+    return { gone: false, status: 0, error: err.code || errFull(err) };
   }
 }
 
@@ -85,7 +86,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('Delete failed:', err.message);
+  console.error('Delete failed:', errFull(err));
   if (err.response?.data) {
     console.error('API response:', JSON.stringify(err.response.data));
   }

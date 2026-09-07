@@ -11,11 +11,12 @@
 
 require('dotenv').config();
 
-const { NAVER_EXIT, reportNaverError } = require('../lib/naver-errors');
+const { NAVER_EXIT, NaverError, reportNaverError } = require('../lib/naver-errors');
 const { SELECTORS, editorUrl, verificationStatus } = require('../lib/naver-selectors');
 const { assertLoggedIn, openContext, requireBlogId } = require('../lib/naver-browser');
 const { resolveEditorFrame, dismissStartupModals } = require('../lib/naver-dom');
 const { dumpFailure, describeFrames } = require('../lib/naver-debug');
+const { errFull, errText } = require('../lib/err-text');
 
 const BOOLEAN_FLAGS = new Set(['--dump', '--keep-open', '--skip-modals', '--headless']);
 
@@ -78,7 +79,7 @@ async function countIn(scope, selector) {
   try {
     return await scope.locator(selector).count();
   } catch (err) {
-    return `ERR(${err.message.split('\n')[0].slice(0, 40)})`;
+    return `ERR(${errText(err).slice(0, 40)})`;
   }
 }
 
@@ -148,6 +149,19 @@ async function main() {
     headless: argv.includes('--headless'),
   };
 
+  // 레지스트리 평탄화를 **브라우저를 띄우기 전에** 한다. 이건 정적 검사(I/O 0회)인데
+  // 예전에는 로그인 성공 + page.goto + networkidle 최대 30s 뒤에야 실행됐다. 그래서
+  // naver:login을 안 한 개발자에게는 레지스트리 오류가 절대 드러나지 않았다.
+  let entries;
+  try {
+    entries = flattenRegistry();
+  } catch (err) {
+    // usage의 "1=인자 오류"와 겹치지 않게 SELECTOR(12)로 낸다 — 조치는 셀렉터
+    // 레지스트리 수정이고, 인자를 다시 쓰는 것이 아니다.
+    throw new NaverError(NAVER_EXIT.SELECTOR, errFull(err));
+  }
+  console.log(`셀렉터 레지스트리: key ${entries.length}개 (후보 ${entries.reduce((a, e) => a + e.candidates.length, 0)}개)\n`);
+
   const blogId = requireBlogId();
   console.log(verificationStatus());
   console.log(`대상: ${editorUrl(blogId)}\n`);
@@ -171,11 +185,10 @@ async function main() {
       frame = await resolveEditorFrame(page, { timeoutMs: 15000 });
       console.log(`\n에디터 프레임: ${frame === page.mainFrame() ? '최상위 문서' : frame.url()}`);
     } catch (err) {
-      console.log(`\n에디터 프레임 탐색 실패: ${err.message.split('\n')[0]}`);
+      console.log(`\n에디터 프레임 탐색 실패: ${errText(err)}`);
       console.log('(프레임 없이 최상위 기준으로만 매칭을 확인합니다)');
     }
 
-    const entries = flattenRegistry();
     await report(page.mainFrame(), '최상위 문서', entries);
     if (frame && frame !== page.mainFrame()) {
       await report(frame, '에디터 프레임', entries);
@@ -196,7 +209,7 @@ async function main() {
         await dismissStartupModals(page, frame);
         console.log('  모달 처리 통과.');
       } catch (err) {
-        console.log(`  ${err.message.split('\n')[0]}`);
+        console.log(`  ${errText(err)}`);
       }
     }
 
