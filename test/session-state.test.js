@@ -161,8 +161,16 @@ test('listStates — 정상과 손상을 함께 보고', (t) => {
   assert.ok(all[1].error);
 });
 
-test('listStates — 디렉터리가 없으면 빈 배열', () => {
-  assert.deepEqual(listStates(path.join(os.tmpdir(), 'pba-does-not-exist-xyz')), []);
+test('listStates — "경로 오타"와 "세션 없음"을 구별한다', () => {
+  const missing = path.join(os.tmpdir(), 'pba-does-not-exist-xyz');
+  // 기본 tmp/가 아직 없는 것(갓 클론한 저장소)은 정상 — 빈 배열
+  assert.deepEqual(listStates(missing), []);
+  // --dir를 명시했는데 없으면 오타다. 조용히 "세션 없음"으로 보고하면
+  // /blog 진입 프로브가 진행 중인 작업을 못 보고 처음부터 재실행한다.
+  assert.throws(
+    () => listStates(missing, { explicit: true }),
+    (err) => err.exitCode === 9 && /상태 디렉터리가 없습니다/.test(err.message),
+  );
 });
 
 test('전체 워크플로우 시나리오', (t) => {
@@ -264,4 +272,25 @@ test('steps_remaining 비배열이 틀린 배열보다 조용하지 않다 (심�
   assert.equal(warnOf({ slug: 'a', steps_completed: ['exif'], steps_remaining: '손상' }).length, 1);
   assert.equal(warnOf({ slug: 'a', steps_completed: ['exif'], steps_remaining: ['틀림'] }).length, 1);
   assert.equal(warnOf({ slug: 'a', steps_completed: ['exif'] }).length, 0);
+});
+
+test('read --field는 손상 상태에서 값을 내보내지 않는다', () => {
+  // 손상 파일에서 빈 문자열 + exit 0을 돌려주면, `X=$(… --field steps_completed)`로
+  // 받는 호출자가 **갓 init한 새 세션과 구별할 수 없다**. .claude/commands/blog.md의
+  // 재개 분기가 그 값을 쓰므로 완료된 단계가 소멸하고 두 번째 초안이 만들어진다.
+  const raw = { schema_version: 1, slug: 'broken', steps_completed: 'exif,upload,draft', post_id: '9' };
+  const r = normalizeState(raw, { slug: 'broken' });
+  assert.equal(r.degraded, true, '손상인데 degraded가 아님');
+
+  // 양성 경고만 있는 경우는 degraded가 아니다 (schema_version 누락 등)
+  const benign = normalizeState({ slug: 'ok', steps_completed: ['exif'] }, { slug: 'ok' });
+  assert.ok(benign.warnings.length > 0, '전제: 경고가 하나는 있다');
+  assert.equal(benign.degraded, false, '양성 경고를 손상으로 봄');
+
+  // steps_remaining 재계산만으로는 손상이 아니다
+  const recalc = normalizeState(
+    { schema_version: 1, slug: 'ok', steps_completed: ['exif'], steps_remaining: ['틀림'] },
+    { slug: 'ok' },
+  );
+  assert.equal(recalc.degraded, false);
 });

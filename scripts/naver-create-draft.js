@@ -102,6 +102,12 @@ function main() {
     printUsage();
   }
 
+  // **--dry-run보다 먼저 검사한다.** 예전에는 dry-run이 return한 뒤에 있어서
+  // `--dry-run --visibility public`이 NAVER_ALLOW_PUBLIC 없이 exit 0으로 통과했다.
+  // dry-run은 "유일하게 동작하는 검증 경로"인데, 실제 실행이면 exit 18로 막힐
+  // 조합에 초록불을 주면 검증의 의미가 없다. 순수 인자 검사이므로 여기가 맞다.
+  assertPublicAllowed(visibility, title);
+
   let html;
   try {
     html = fs.readFileSync(htmlPath, 'utf8');
@@ -164,7 +170,6 @@ function main() {
     return;
   }
 
-  assertPublicAllowed(visibility, title);
 
   // ★ 실물 확인 게이트 ★
   if (!isVerified()) {

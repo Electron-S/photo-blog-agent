@@ -38,7 +38,10 @@ node scripts/analyze-photos.js <이미지경로1> [이미지경로2] ... --outpu
 - 빈 JSON 골격을 디스크에 쓰는 **스캐폴더 스크립트**. 실제 시각 분석은 실행 중인 모델이 Read 도구로 사진을 보고 Edit으로 채운다.
 - 모델은 첫 사진을 Read해서 시각 정보를 얻을 수 있으면 `analyzed_by_model_capability: "vision"`으로 표시하고 각 사진의 `scene_description`·`text_visible`·`notable_objects` 등을 채운다.
 - 첫 사진 Read에서 시각 정보가 없으면(텍스트 전용 모델) `analyzed_by_model_capability: "text-only"`로 표시하고 나머지 사진은 건너뛴다.
-- 이미 채워진 파일을 발견하면 다른 세션/모델이 만든 것이라 가정하고 재분석하지 않는다 (모델 간 핸드오프 지점).
+- 이미 채워진 entry는 다른 세션/모델이 만든 것이라 가정하고 재분석하지 않는다 (모델 간 핸드오프 지점).
+  판단 단위는 **entry**다 — `photos[].analysis_status`가 `"pending"`인 것만 채운다. 최상위
+  `analyzed_by_model_capability`만 보면, 사진을 추가해 재실행했을 때 새로 붙은 entry를 건너뛰어
+  그 사진이 영구히 `scene_description: null`로 남는다.
 - 출력 포맷: `{ schema_version: 1, analyzed_at, analyzed_by_model_capability, photos: [...], overall_impression }`
 
 종료 코드:
@@ -132,7 +135,8 @@ node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --slug <
 명령·플래그·종료 코드의 정본은 [README.md](README.md#스크립트-scripts)입니다.
 위 "사진 파이프라인"과 "블로그 글 작성 워크플로우" 절에 이 프로젝트에서 지켜야 할
 규칙과 그 이유를 적어 두었고, 전체 인자 목록은 각 스크립트를 **인자 없이 실행**하면 나오는
-usage로 확인합니다 (`--help` 플래그는 구현돼 있지 않습니다 — 알 수 없는 플래그로 거부됩니다).
+usage로 확인합니다. 대부분의 스크립트는 `--help`를 알 수 없는 플래그로 거부하고
+(그때도 usage가 출력됩니다), `naver-publish-post.js`만 `--help`/`-h`를 받습니다.
 
 ### URL 슬러그 — 절대 규칙
 
@@ -172,7 +176,8 @@ Blogger는 **첫 발행 시점에 URL을 영구 고정**한다. LIVE 된 글의 
 | `tmp/draft-<slug>.html` | 초안 작성 | Blogger에 등록된 HTML 본문 (수정 루프 시 Edit 대상) |
 
 핵심 원칙:
-- 이미 채워진 `photo-analysis-*.json`(`analyzed_by_model_capability`가 null이 아님)은 재분석하지 않는다 — 모델이 바뀌어도 그대로 사용
+- 이미 채워진 entry(`photos[].analysis_status !== "pending"`)는 재분석하지 않는다 — 모델이 바뀌어도 그대로 사용.
+  `analyze-photos.js`는 사진을 추가하면 **기존 분석을 보존한 채 새 entry만 pending으로 붙인다** (병합)
 - `session-state-*.json`이 존재하면 `/blog` 모드 진입 시 사용자에게 "이어서/처음부터" 분기를 물음
 - 사용자가 "처음부터"를 선택하면 session-state와 draft-html은 삭제하되, metadata/photo-analysis는 멱등하므로 보존
 
@@ -186,13 +191,17 @@ Blogger는 **첫 발행 시점에 URL을 영구 고정**한다. LIVE 된 글의 
 ## 네이버 블로그 발행 (Playwright 자동화) — 실험적, 현재 미검증
 
 > **경고: 이 기능은 아직 한 번도 실제로 동작한 적이 없습니다.**
-> 셀렉터가 실물 네이버 SmartEditor DOM으로 검증되지 않았고,
-> `naver-publish-post.js`는 빈 페이지에서 발행 버튼을 찾는 구조적 결함이 있습니다.
+> 셀렉터가 실물 네이버 SmartEditor DOM으로 검증되지 않았습니다
+> (`lib/naver-selectors.js`의 `VERIFIED_AT`이 `null`).
+> 지금 동작하는 것은 `naver:draft --dry-run`(브라우저 없이 블록 변환·로컬 이미지
+> 해석 검증)과 `naver:doctor`뿐이고, 에디터 조작 레이어는 미구현입니다.
 > 실물 검증이 끝나기 전까지는 **Blogger 경로만 사용하세요.**
 >
-> `playwright`는 `optionalDependencies`입니다 — 미설치 상태에서 실행하면
-> exit 10과 설치 안내(`npm install --include=optional`,
-> `npx playwright install chromium`)가 나옵니다.
+> `playwright`는 `optionalDependencies`입니다. 미설치 상태에서 **브라우저를 여는
+> 경로**(`naver:login`, `naver:inspect`, `naver:doctor`)는 exit 10과 설치 안내
+> (`npm install --include=optional`, `npx playwright install chromium`)를 냅니다.
+> `naver:draft`는 셀렉터 게이트(exit 12)나 이미지 해석(exit 16)에서 먼저 멈추므로
+> playwright를 require하는 지점에 도달하지 않습니다 — exit 10이 아닙니다.
 
 ### 세션 설정 (1회 수행)
 ```bash

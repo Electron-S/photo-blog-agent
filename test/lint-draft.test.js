@@ -541,7 +541,6 @@ test('작성 시점 표현 — 시제 지시어가 다른 서술어에 걸린 �
     '오늘 못 갔다',                            // 부정어만 (절 연결 없음)
     '오늘 안 갔다',
     '방금 못 들렀다',
-    '오늘 날씨가 좋아서 공원에 갔다',
     '어제까지 예약이 안 돼서 오늘 가려고 했다',
     '지금은 자리가 없어서 다음에 방문하기로 했다',
     '아까 본 그 가게를 다시 찾았다',             // '찾았'은 방문 어간이 아니다
@@ -555,7 +554,79 @@ test('작성 시점 표현 — 시제 지시어가 다른 서술어에 걸린 �
   for (const bad of [
     '오늘 다녀왔습니다', '오늘은 다녀왔습니다', '어제 다녀왔습니다',
     '방금 다녀왔어요', '이번 주말에 다녀왔습니다', '아까 갔다 왔습니다',
+    // 10차에서 정당하다고 잘못 분류했던 것 — "오늘 … 갔다"는 작성 시점 서술이다
+    '오늘 날씨가 좋아서 공원에 갔다',
   ]) {
     assert.equal(hit(bad), true, `놓침: ${bad}`);
   }
+});
+
+test('작성 시점 표현 — 조사·어미가 사이에 껴도 잡는다 (가드가 규칙을 지우지 않는다)', () => {
+  // 10차에 오탐을 막으려고 넣은 절 연결어미 가드가 **규칙을 통째로 무력화**했다.
+  // `-서/-고/-러/-려고`는 앞 절을 뒤 절에 **종속**시키므로 주절 서술어가 곧
+  // 방문 동사인데, 가드가 정확히 그것을 면제했다. 게다가 음절만 보느라
+  // 조사 `-에서`/`-하고`와 명사 "라면"까지 걸렸다.
+  //
+  // 테스트가 왜 못 잡았나: 금지 케이스 12건 중 시제 지시어와 동사 사이에
+  // **조사나 어미가 들어간 것이 하나도 없었다.** 가드의 사정거리를 통과하는
+  // 입력만 코퍼스에 있었다.
+  const hit = (text) => lintDraftHtml(`<p>${text}</p>`, {}).errors
+    .some((e) => e.rule === 'no-writing-date-expression');
+
+  for (const bad of [
+    '오늘 부산에서 다녀왔습니다',        // 처소격 -에서
+    '오늘 아내하고 다녀왔습니다',        // 공동격 -하고
+    '오늘 점심 먹으러 다녀왔습니다',      // 목적 -으러
+    '오늘 커피 마시려고 들렀습니다',      // 목적 -려고
+    '아까 밥 먹고 다녀왔습니다',         // 순차 -고
+    '지금 막 도착해서 들렀습니다',        // -해서
+    '오늘 라면 다녀왔다',              // 명사 '라면'
+    '어제 남편하고 다녀왔어요',
+    '오늘 날씨가 좋아서 공원에 갔다',
+    '오늘 안 갔다가 결국 다시 다녀왔습니다', // 부정어 skip이 뒤의 위반을 삼켰다
+  ]) {
+    assert.equal(hit(bad), true, `놓침: ${bad}`);
+  }
+});
+
+test('작성 시점 표현 — 미래 의도는 작성 시점 혼동이 아니다', () => {
+  const hit = (text) => lintDraftHtml(`<p>${text}</p>`, {}).errors
+    .some((e) => e.rule === 'no-writing-date-expression');
+  for (const ok of [
+    '지금은 자리가 없어서 다음에 방문하기로 했다',
+    '오늘은 문을 닫아서 나중에 방문할 예정이다',
+  ]) {
+    assert.equal(hit(ok), false, `오탐(발행 불가): ${ok}`);
+  }
+});
+
+test('figure가 컨테이너 안에 있어도 뒤 문장을 센다 (error 오탐 방지)', () => {
+  // `fig.parent.children`만 훑으면 래퍼 하나에 판정이 무너진다. Blogger 웹
+  // 에디터는 이미지를 <div class="separator">로 감싸는 것이 기본 동작이라,
+  // 사용자가 에디터를 한 번 거치면 바로 도달한다. 그때 text-after-figure가
+  // "0문장뿐입니다"라고 하는데 초안을 열면 문장이 보인다 — 능동적 오도다.
+  const FIGURE = '<figure style="margin:1.5em 0;text-align:center;position:relative;">'
+    + '<img src="https://x/photo-01.webp" width="1024" height="768" loading="lazy" '
+    + 'alt="가게 외관" style="max-width:100%;height:auto;">'
+    + '<figcaption>해질녘 가게 앞 풍경입니다</figcaption></figure>';
+  const P3 = '<p>첫 문장이다. 둘째 문장이다. 셋째 문장이다.</p>';
+  const stats = (html) => lintDraftHtml(html, {}).stats.sentencesAfterFigure;
+  const figErrors = (html) => lintDraftHtml(html, {}).errors
+    .map((e) => e.rule).filter((r) => /figure/.test(r));
+
+  // 래퍼 유무와 무관하게 같은 판정
+  assert.deepEqual(stats(FIGURE + P3), [3]);
+  assert.deepEqual(stats(`<div class="separator">${FIGURE}</div>${P3}`), [3]);
+  assert.deepEqual(stats(`<div><section>${FIGURE}</section></div>${P3}`), [3]);
+  assert.deepEqual(stats(`<div>${FIGURE}${P3}</div>`), [3]);
+  for (const html of [FIGURE + P3, `<div class="separator">${FIGURE}</div>${P3}`]) {
+    assert.deepEqual(figErrors(html), [], 'text-after-figure 오탐');
+  }
+
+  // h3 직후 판정도 래퍼를 넘어서 본다
+  assert.deepEqual(figErrors(`${FIGURE}<h3>제목</h3>${P3}`), ['no-h3-after-figure']);
+  assert.deepEqual(figErrors(`<div class="separator">${FIGURE}</div><h3>제목</h3>${P3}`),
+    ['no-h3-after-figure']);
+  // 진짜로 뒤에 아무것도 없으면 여전히 잡는다
+  assert.deepEqual(figErrors(FIGURE), ['text-after-figure']);
 });

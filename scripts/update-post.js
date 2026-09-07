@@ -130,5 +130,8 @@ async function main() {
 main().catch((err) => {
   // 핸들러가 err를 직접 만지지 않는다 — reportFatal이 message/stack/response.data와
   // exit 코드를 전부 가드해서 꺼낸다 (`Promise.reject(null)`에서도 죽지 않는다).
-  process.exit(reportFatal(err, 'Post update failed:'));
+  //
+  // exit 8(lint 위반)은 **정책적 거부**이지 버그가 아니므로 스택 트레이스를 내지
+  // 않는다 — lint-draft.js와 같은 모양이어야 사용자가 "무엇을 고쳐야 하는지"만 본다.
+  process.exit(reportFatal(err, 'Post update failed:', { quietStackFor: [8] }));
 });

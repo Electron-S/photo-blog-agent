@@ -29,9 +29,24 @@ function printUsage() {
   process.exit(1);
 }
 
+const FLAGS_WITH_VALUE = new Set(['--draft-title', '--visibility']);
+const BOOLEAN_FLAGS = new Set(['--help', '-h']);
+
 function main() {
   const argv = process.argv.slice(2);
   if (argv.includes('--help') || argv.includes('-h')) printUsage();
+
+  // **알 수 없는 플래그를 조용히 무시하지 않는다.** 이 저장소의 다른 스크립트는
+  // 전부 거부하는데 여기만 빠져 있었다 — `--bogus zzz --draft-title t`가 그대로
+  // 통과했다. 발행 스크립트에서 오타가 무시되면 의도와 다른 글이 공개될 수 있다.
+  for (let i = 0; i < argv.length; i += 1) {
+    const a = argv[i];
+    if (!a.startsWith('--') && !a.startsWith('-')) continue;   // 값
+    if (FLAGS_WITH_VALUE.has(a)) { i += 1; continue; }
+    if (BOOLEAN_FLAGS.has(a)) continue;
+    console.error(`Error: unknown option ${a}`);
+    printUsage();
+  }
 
   // 무인자 "현재 에디터 발행"은 폐기했다. 어떤 글을 발행할지 지정하지 않으면
   // 엉뚱한 임시저장이 공개될 수 있다.

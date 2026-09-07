@@ -55,7 +55,10 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/analyze-photos.js <사진들> 
    - 나머지 사진은 Read하지 않습니다.
    - 모든 photo entry의 `analysis_status`를 `"skipped_no_vision"`으로 갱신합니다.
    - 최상위에 `analyzed_by_model_capability: "text-only"`, `overall_impression: "Vision not available — caption/EXIF only"`로 표시합니다.
-5. 이미 채워진 `photo-analysis-*.json`(`analyzed_by_model_capability`가 null이 아님)을 발견하면 **다시 Read하지 말고 그대로 사용**합니다. 다른 세션이 이미 채워뒀을 수 있습니다.
+5. **재분석 여부는 `analyzed_by_model_capability`가 아니라 `photos[].analysis_status`로 판단합니다.**
+   - `analysis_status`가 `"pending"`인 entry만 Read해서 채웁니다. 이미 `"completed"`/`"skipped_no_vision"`인 것은 **다시 Read하지 않습니다** — 다른 세션이 채워둔 것입니다.
+   - `analyzed_by_model_capability`가 이미 `"vision"`이어도 **`pending`이 남아 있으면 채워야 합니다.** `analyze-photos.js`는 사진을 추가하면 기존 분석을 보존한 채 새 entry만 `pending`으로 붙이므로, 최상위 필드만 보고 건너뛰면 **새 사진이 영구히 `scene_description: null`로 남습니다.**
+   - 전부 채운 뒤 `analyzed_at`을 현재 시각으로 **갱신**합니다 (병합 시 옛 타임스탬프가 남아 있습니다).
 
 exit 코드: 2(`--output` 쓰기 실패), 3(지원 이미지 없음) → EXIF 추출과 동일하게 root cause 진단.
 
@@ -219,7 +222,7 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/publish-post.js \
 4. **사용자 OK 없이 발행 금지**: 수정·업데이트는 자동, 발행만은 명시적 동의 필요.
 5. **exit 코드 우회 금지**: exit 2/3/4/5/6/7/8은 모두 root cause가 있는 신호입니다. `--no-verify`나 임의 fallback 사용 금지. 특히 **exit 8(lint 위반)은 우회 플래그가 아예 없습니다** — 본문을 고치는 것이 유일한 해결입니다.
 6. **사진이 한 장도 없으면 진행 안 함**: 글의 원본성은 사진에서 나옴. 텍스트만으로 글을 만들지 않습니다.
-7. **시각 분석은 영속화**: Step 2.5 직후 `tmp/photo-analysis-<날짜>.json`을 채우면, 같은 글의 다음 세션/모델이 그 내용을 그대로 읽어서 사용한다. 이미 `analyzed_by_model_capability`가 채워진 파일은 다시 Read해서 재분석하지 않는다.
+7. **시각 분석은 영속화**: Step 2.5 직후 `tmp/photo-analysis-<날짜>.json`을 채우면, 같은 글의 다음 세션/모델이 그 내용을 그대로 읽어서 사용한다. **재분석 판단은 entry 단위(`photos[].analysis_status === "pending"`)로 한다** — 최상위 `analyzed_by_model_capability`만 보면, 사진을 추가해 재실행했을 때 새로 붙은 `pending` entry를 건너뛰어 그 사진이 영구히 비게 된다.
 8. **세션 상태는 slug 단위, 갱신은 반드시 CLI로**: Step 3 이후 모든 단계 종료 시 `scripts/session-state.js update`로 상태를 갱신해 중단 지점부터 재개 가능하게 둔다. **JSON을 Write 도구로 직접 쓰지 않는다** — `steps_completed`/`steps_remaining` 두 배열을 손으로 동기화하면 하나만 틀려도 재개가 조용히 깨진다. 모드 진입 시 상태가 있으면 사용자에게 이어 진행 여부를 묻는다.
 
 ## 사진 입력 누적 처리

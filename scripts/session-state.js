@@ -24,6 +24,10 @@ const BOOLEAN_FLAGS = new Set(['--force']);
 function printUsage() {
   console.log('Usage: node session-state.js <init|update|read|list> [options]');
   console.log('');
+  console.log('  공통   --dir  상태 파일 디렉터리 (기본값: tmp — **cwd 상대**).');
+  console.log('         저장소 루트가 아닌 곳에서 실행하면 엉뚱한 위치에 생기므로 절대 경로 권장.');
+  console.log('         init/update/read/list 네 서브커맨드 모두에서 쓸 수 있습니다.');
+  console.log('');
   console.log('  init   --slug S [--primary-date D] [--metadata-path P] [--analysis-path P]');
   console.log('         [--upload-result-path P] [--draft-path P] [--post-id ID] [--post-url URL] [--force]');
   console.log('         --force로 덮어쓸 때 post_id/post_url을 보존하려면 함께 넘기세요');
@@ -33,6 +37,8 @@ function printUsage() {
   console.log('         [--primary-date D] [--metadata-path P] [--analysis-path P] [--upload-result-path P]');
   console.log('');
   console.log('  read   --slug S [--field steps_remaining] [--format json|text]');
+  console.log('         --field는 기본이 평문(배열은 콤마 조인). --format json을 명시하면 JSON.');
+  console.log('         상태 파일이 손상됐으면 값을 내보내지 않고 exit 9 (조용한 오독 방지).');
   console.log('  list   [--dir tmp]');
   console.log('');
   console.log(`단계 이름: ${STEPS.join(', ')}`);
@@ -122,7 +128,7 @@ function main() {
   const dir = get('--dir') || 'tmp';
 
   if (sub === 'list') {
-    const all = listStates(dir);
+    const all = listStates(dir, { explicit: get('--dir') !== null });
     if (all.length === 0) {
       console.log('(진행 중 세션 없음)');
       return;
@@ -213,25 +219,42 @@ function main() {
   }
   for (const w of existing.warnings) console.error(`  경고: ${w}`);
 
+  const explicitFormat = get('--format');
+  const format = explicitFormat || 'json';
+  if (format !== 'json' && format !== 'text') {
+    // **--field보다 먼저 검증한다.** 예전에는 --field가 먼저 return해서
+    // `--field slug --format bogus`가 검증을 통째로 건너뛰었다.
+    console.error(`Error: --format은 json 또는 text여야 합니다. (받음: "${format}")`);
+    printUsage();
+  }
+
   const field = get('--field');
   if (field !== null) {
-    if (!(field in existing.state)) {
+    // `in`은 프로토타입 체인을 탄다 — `--field toString`이 네이티브 함수를 출력했다.
+    if (!Object.prototype.hasOwnProperty.call(existing.state, field)) {
       console.error(`Error: "${field}" 필드가 없습니다. 사용 가능: ${Object.keys(existing.state).join(', ')}`);
       process.exit(1);
     }
+    // **손상 상태에서는 값을 내보내지 않는다.** `X=$(… --field steps_completed)`로
+    // 받는 호출자는 빈 문자열을 "갓 init한 새 세션"과 구별할 수 없다.
+    if (existing.degraded) {
+      console.error('Error: 상태 파일이 손상되어 이 값을 신뢰할 수 없습니다 (위 경고 참조).');
+      console.error(`  + 전체 상태는 \`read --slug ${slug}\`로 확인하고, 고친 뒤 다시 시도하세요.`);
+      process.exit(9);
+    }
     const v = existing.state[field];
-    console.log(Array.isArray(v) ? v.join(',') : String(v));
+    // 기본은 셸에서 쓰기 좋은 평문(`X=$(… --field steps_remaining)`).
+    // `--format json`을 **명시**하면 배열·객체를 뭉개지 않고 그대로 준다
+    // (예전에는 배열이 콤마 조인, 객체가 [object Object]로 소실됐다).
+    if (explicitFormat === 'json') console.log(JSON.stringify(v));
+    else console.log(Array.isArray(v) ? v.join(',') : String(v));
     return;
   }
 
-  const format = get('--format') || 'json';
   if (format === 'text') {
     console.log(summarize(existing.state));
-  } else if (format === 'json') {
-    console.log(JSON.stringify(existing.state, null, 2));
   } else {
-    console.error(`Error: --format은 json 또는 text여야 합니다. (받음: "${format}")`);
-    printUsage();
+    console.log(JSON.stringify(existing.state, null, 2));
   }
 }
 

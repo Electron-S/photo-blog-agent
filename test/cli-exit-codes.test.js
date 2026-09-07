@@ -397,3 +397,79 @@ test('analyze-photos: 사진을 추가해 재실행하면 병합한다 (새 사�
   assert.equal(read().photos.find((ph) => ph.file === 'a.jpg').scene_description, '첫 사진');
   assert.match(mix.stderr, /그대로 남겼습니다/);
 });
+
+test('session-state read --field: 손상은 exit 9, 프로토타입 필드는 exit 1', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-ss2-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const write = (slug, obj) => fs.writeFileSync(
+    path.join(dir, `session-state-${slug}.json`), JSON.stringify(obj), 'utf8',
+  );
+  write('broken', { schema_version: 1, slug: 'broken', steps_completed: 'exif,upload', post_id: '9' });
+  write('ok', {
+    schema_version: 1,
+    slug: 'ok',
+    steps_completed: ['exif'],
+    steps_remaining: ['photo_analysis', 'upload', 'research', 'draft', 'publish'],
+  });
+  const run2 = (args) => run('session-state.js', [...args, '--dir', dir]);
+
+  // 손상 상태에서 값을 내보내면 새 세션과 구별할 수 없다
+  const broken = run2(['read', '--slug', 'broken', '--field', 'steps_completed']);
+  assert.equal(broken.status, 9, `status=${broken.status} stdout=${broken.stdout}`);
+  assert.equal(broken.stdout.trim(), '', '손상인데 값을 출력함');
+
+  // 정상 상태는 셸에서 쓰기 좋은 평문
+  const okRun = run2(['read', '--slug', 'ok', '--field', 'steps_remaining']);
+  assert.equal(okRun.status, 0);
+  assert.equal(okRun.stdout.trim(), 'photo_analysis,upload,research,draft,publish');
+
+  // --format json을 명시하면 배열을 뭉개지 않는다
+  const asJson = run2(['read', '--slug', 'ok', '--field', 'steps_remaining', '--format', 'json']);
+  assert.equal(asJson.status, 0);
+  assert.deepEqual(JSON.parse(asJson.stdout), ['photo_analysis', 'upload', 'research', 'draft', 'publish']);
+
+  // 프로토타입 체인을 타지 않는다
+  assert.equal(run2(['read', '--slug', 'ok', '--field', 'toString']).status, 1);
+  assert.equal(run2(['read', '--slug', 'ok', '--field', 'constructor']).status, 1);
+
+  // --field가 --format 검증을 건너뛰지 않는다
+  assert.equal(run2(['read', '--slug', 'ok', '--field', 'slug', '--format', 'bogus']).status, 1);
+});
+
+test('session-state list: --dir 오타를 "세션 없음"으로 보고하지 않는다', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-ss3-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  // 빈 디렉터리는 정상적으로 "없음"
+  const empty = run('session-state.js', ['list', '--dir', dir]);
+  assert.equal(empty.status, 0);
+  assert.match(empty.stdout, /진행 중 세션 없음/);
+
+  // 없는 경로를 명시하면 실패로 알린다 — /blog 진입 프로브가 진행 중인 작업을
+  // 못 보고 처음부터 재실행하는 것을 막는다
+  const typo = run('session-state.js', ['list', '--dir', path.join(dir, 'nope')]);
+  assert.equal(typo.status, 9, `status=${typo.status}`);
+  assert.match(typo.stderr, /상태 디렉터리가 없습니다/);
+});
+
+test('naver:draft — --dry-run이 공개 발행 게이트를 우회하지 않는다', () => {
+  // dry-run은 "유일하게 동작하는 검증 경로"인데, 실제 실행이면 exit 18로 막힐
+  // 조합에 초록불을 주면 검증의 의미가 없다.
+  const args = ['--html', path.join(FIXTURES, 'draft-toscano.html'), '--dry-run', '--visibility', 'public'];
+  const blocked = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'naver-create-draft.js'), ...args], {
+    encoding: 'utf8', cwd: ROOT, env: { ...process.env, NAVER_ALLOW_PUBLIC: '' },
+  });
+  assert.equal(blocked.status, 18, `status=${blocked.status}\n${blocked.stdout}${blocked.stderr}`);
+  assert.match(blocked.stderr, /NAVER_ALLOW_PUBLIC/);
+});
+
+test('naver:publish — 알 수 없는 플래그를 조용히 무시하지 않는다', () => {
+  // 발행 스크립트에서 오타가 무시되면 의도와 다른 글이 공개될 수 있다.
+  const r = run('naver-publish-post.js', ['--bogus', 'zzz', '--draft-title', 't']);
+  assert.equal(r.status, 1, `status=${r.status}`);
+  assert.match(r.stderr, /unknown option --bogus/);
+  // 정상 인자는 그대로 동작 (미구현이므로 exit 12)
+  assert.equal(run('naver-publish-post.js', ['--draft-title', 't']).status, 12);
+  // 값에 하이픈이 들어가도 플래그로 오인하지 않는다
+  assert.equal(run('naver-publish-post.js', ['--draft-title', '제목 --아님']).status, 12);
+});
