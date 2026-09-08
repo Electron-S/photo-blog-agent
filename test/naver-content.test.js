@@ -467,3 +467,57 @@ test('figure/ul이 소비되지 않은 텍스트도 조용히 버리지 않는�
   // 보이지 않는 문자만 있는 것도 내용이 아니다 (finalizeSource가 지운다)
   assert.equal(htmlToBlocks('<figure><img src="x.webp" alt="a">&#8203;</figure>').blocks.length, 1);
 });
+
+// --- 22차 리뷰 회귀 ---
+
+test('localPathFor — percent-escape로 assetsRoot를 벗어날 수 없다', () => {
+  // decodeURIComponent가 `%2e%2e%2f`를 `../`로 바꿔 해석 결과가 tmp/assets 밖으로
+  // 나갔다. 초안 HTML은 모델이 쓴 것이라 공격 경로는 아니지만, "해석된 경로는
+  // assetsRoot 안"이라는 불변식이 성립하지 않았다.
+  for (const bad of [
+    'https://x/posts/%2e%2e%2f%2e%2e%2fetc/passwd.webp',
+    'https://x/posts/..%2fother/photo-01.webp',
+    'https://x/posts/d/%2e%2e%2f%2e%2e%2fpasswd.webp',
+  ]) {
+    assert.equal(localPathFor(bad, { assetsRoot: 'tmp/assets' }), null, bad);
+  }
+  // 정상 경로는 계속 해석된다 (공백이 든 폴더명 포함 — 기존 계약)
+  assert.equal(
+    localPathFor('https://x/posts/2026-05-10-abc%20123/photo-01.webp', { assetsRoot: 'tmp/assets' }),
+    path.join('tmp/assets', '2026-05-10-abc 123', 'photo-01.webp'),
+  );
+});
+
+test('localPathFor — 잘못된 percent-escape는 src를 담은 오류를 낸다', () => {
+  // decodeURIComponent가 raw URIError를 던져 generic catch에 걸렸고, 사용자에게는
+  // "실패 (exit 1): URI malformed" 한 줄만 나갔다 — 어느 사진인지도, 무엇을 하라는지도
+  // 없었다. 게다가 exit 1은 "인자 오류"로 문서화되어 있어 안내가 플래그를 가리켰다.
+  assert.throws(
+    () => localPathFor('https://x/posts/2026-05-14-a%zzb/photo-01.webp', { assetsRoot: 'tmp/assets' }),
+    (e) => e.exitCode === NAVER_EXIT.IMAGE
+      && /percent-escape/.test(e.message)
+      && /2026-05-14-a%zzb/.test(e.message),
+  );
+});
+
+test('localPathFor — --image-dir가 다른 글의 폴더를 가리키면 경고한다', () => {
+  // `{date}-{hash12}`가 같은 날 올린 여러 글의 photo-01.webp를 구별하는 **유일한**
+  // 수단인데 이 분기가 그것을 버렸다. 그래서 다른 글의 사진을 10/10 해석하고
+  // exit 0으로 끝났고, dry-run 출력도 basename만 찍어서 맞는 글이든 틀린 글이든
+  // 같은 줄이 나왔다 — 눈으로도 감지할 수 없었다.
+  const seen = [];
+  const warn = (m) => seen.push(m);
+
+  const p = localPathFor('https://x/posts/2026-05-14-73bbbb7cda45/photo-01.webp',
+    { assetsRoot: 'tmp/assets', imageDir: '/img/postA', warn });
+  assert.equal(p, path.join('/img/postA', 'photo-01.webp'), '경로 해석 자체는 유지된다');
+  assert.equal(seen.length, 1, '불일치인데 경고하지 않음');
+  assert.match(seen[0], /2026-05-14-73bbbb7cda45/);
+  assert.match(seen[0], /postA/);
+
+  // 디렉터리명이 글 폴더와 같으면 경고하지 않는다
+  seen.length = 0;
+  localPathFor('https://x/posts/2026-05-14-73bbbb7cda45/photo-01.webp',
+    { assetsRoot: 'tmp/assets', imageDir: '/img/2026-05-14-73bbbb7cda45', warn });
+  assert.deepEqual(seen, [], '일치하는데 경고함');
+});

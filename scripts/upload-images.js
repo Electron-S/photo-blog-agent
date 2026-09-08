@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { uploadBlogImages, DEFAULT_MAX_SIZE_KB, MAX_SIZE_KB_LIMIT } = require('../lib/github-assets');
 const { errFull, reportFatal } = require('../lib/err-text');
-const { checkDatePlausible } = require('../lib/slug');
+const { checkDatePlausible, isValidCalendarDate } = require('../lib/slug');
 const { canonicalSlugError } = require('../lib/asset-paths');
 
 const args = process.argv.slice(2);
@@ -23,7 +23,8 @@ function printUsage() {
   console.log('');
   console.log('날짜 우선순위: --date > --metadata의 primary_date > (없으면 exit 5, 멱등성 보호)');
   console.log('종료 코드: 0=전부 정상, 1=인자 오류(--slug 누락/비정규형 포함)·업로드/검증 실패,');
-  console.log('           2=--output 쓰기 실패, 4=품질 저하(fallback/oversize/치수 결손/계약 위반), 5=날짜 출처 미상');
+  console.log('           2=--output 쓰기 실패, 4=품질 저하(fallback/oversize/치수 결손), 5=날짜 출처 미상');
+  console.log('           (계약 위반은 산출물이 없으므로 exit 1입니다 — exit 4로는 나오지 않습니다.)');
   process.exit(1);
 }
 
@@ -86,9 +87,9 @@ function validateExplicitDate(raw) {
     console.error(`Error: --date 형식이 YYYY-MM-DD가 아닙니다: "${raw}"`);
     process.exit(1);
   }
+  // 달력 검사는 lib/slug.js의 정본을 쓴다 (예전에는 여기서 손으로 재구현했다).
   const [y, mo, d] = raw.split('-').map(Number);
-  const dt = new Date(y, mo - 1, d);
-  if (dt.getFullYear() !== y || dt.getMonth() + 1 !== mo || dt.getDate() !== d) {
+  if (!isValidCalendarDate(y, mo, d)) {
     console.error(`Error: --date "${raw}"는 유효한 달력 날짜가 아닙니다.`);
     process.exit(1);
   }
@@ -127,6 +128,36 @@ function readMetadataPrimaryDate(metadataPath) {
     process.exit(1);
   }
   const primaryDate = parsed.primary_date;
+  // **non-null primary_date를 무검증으로 쓰지 않는다.** `--date`는 형식·달력을
+  // 검사하는데 이 경로는 아무 검사도 없었다 — 그래서 `primary_date: "2026-02-30"`이
+  // 들어오면 "날짜=2026-02-30 (EXIF primary_date)"를 찍고 그대로 진행했다 (실측).
+  // 그 값은 폴더 경로 `posts/2026-02-30-<hash>/`가 되어 **공개 저장소에 push**되고,
+  // 그 다음에 오는 loadSlugFromMetadata와 session-state는 같은 값을 거부한다 —
+  // 되돌릴 수 없는 단계가 통과하고 되돌릴 수 있는 단계가 죽는 순서다.
+  if (primaryDate != null) {
+    if (typeof primaryDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(primaryDate)) {
+      console.error(`Error: --metadata의 primary_date가 YYYY-MM-DD 형식이 아닙니다 `
+        + `(받음: ${JSON.stringify(primaryDate)}, ${metadataPath}).`);
+      console.error('  extract-exif.js를 다시 실행하거나, 방문 날짜를 --date YYYY-MM-DD로 넘기세요.');
+      process.exit(1);
+    }
+    const [y, mo, d] = primaryDate.split('-').map(Number);
+    if (!isValidCalendarDate(y, mo, d)) {
+      console.error(`Error: --metadata의 primary_date "${primaryDate}"는 존재하지 않는 날짜입니다 (${metadataPath}).`);
+      console.error('  이 값은 폴더 경로에 그대로 들어가고 Blogger URL로 영구 고정됩니다 —');
+      console.error('  EXIF를 확인하고 실제 방문 날짜를 --date YYYY-MM-DD로 넘기세요.');
+      process.exit(1);
+    }
+    // 달력에는 있지만 타당 범위 밖인 날짜(1990년 이전·미래)는 차단하지 않고 경고한다 —
+    // `--date`와 같은 취급이다. extract-exif는 이런 날짜를 primary_date로 뽑지 않으므로,
+    // 여기 들어왔다는 것은 손으로 고쳤거나 옛 버전 출력이라는 뜻이다. 정말 옛 날짜일
+    // 수도 있으니 막지는 않되, 폴더 경로와 Blogger URL에 그대로 박힌다는 것은 알린다.
+    const implausible = checkDatePlausible(primaryDate);
+    if (implausible) {
+      console.error(`Warning: --metadata의 primary_date ${implausible}`);
+      console.error('  (진행합니다 — 이 날짜가 폴더 경로에 들어가고 발행 시 URL로 영구 고정됩니다.)');
+    }
+  }
   if (primaryDate == null) {
     // **원인을 구별한다.** primary_date가 null인 이유는 두 가지이고 조치가 다르다:
     //   (a) EXIF에 날짜가 아예 없다 → 사용자에게 방문 날짜를 물어야 한다
@@ -218,6 +249,10 @@ async function main() {
   const workDir = get('--work-dir');
   const outputPath = get('--output');
   const localOnly = has('--local-only');
+  // 이미 있는 원격 경로에 **다른 내용**을 쓰는 것을 허용한다. 기본은 거부다 —
+  // CLAUDE.md가 멱등성을 위해 같은 --slug를 유지하라고 지시하므로, 사진을 하나
+  // 추가하고 재실행하면 photo-NN이 밀려 이미 LIVE인 글의 이미지가 전부 바뀐다.
+  const allowReplace = has('--allow-replace');
   const maxSizeKB = parseMaxSizeKB(get('--max-size-kb'));
 
   for (const imgPath of imagePaths) {
@@ -232,6 +267,7 @@ async function main() {
   if (workDir) options.workDir = workDir;
   if (maxSizeKB !== undefined) options.maxSizeKB = maxSizeKB;
   if (localOnly) options.localOnly = true;
+  if (allowReplace) options.allowReplace = true;
 
   console.error(`${localOnly ? 'Compressing' : 'Uploading'} ${imagePaths.length} image(s)...`);
   const { images, summary } = await uploadBlogImages(imagePaths, options);

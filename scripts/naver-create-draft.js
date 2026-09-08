@@ -139,7 +139,11 @@ function main() {
   blocks.forEach((b, i) => {
     const n = String(i + 1).padStart(2, '0');
     if (b.type === 'image') {
-      console.log(`${n} [image]     ${path.basename(b.localPath)}  ← ${oneLine(b.src, 60)}`);
+      // **basename이 아니라 전체 경로를 찍는다.** basename은 src의 basename과
+      // 구조상 항상 같아서, --image-dir가 다른 글의 디렉터리를 가리켜도 이 줄이
+      // 똑같이 나왔다 — 유일한 검증 경로에서 불일치가 보이지 않았다.
+      console.log(`${n} [image]     ${b.localPath}`);
+      console.log(`              src:     ${oneLine(b.src, 70)}`);
       console.log(`              caption: ${oneLine(b.caption) || '(없음)'}`);
       // alt가 출력되지 않아, 보이지 않는 문자나 잘못된 대체텍스트가 검증 출력에서도
       // 안 보였다. 에디터에 들어가는 값은 전부 여기서 눈으로 확인할 수 있어야 한다.

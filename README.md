@@ -35,7 +35,7 @@
 |------|------|
 | `npm run assets:extract` | EXIF 메타데이터 추출 |
 | `npm run assets:analyze` | 사진 시각 분석 JSON 골격 생성 |
-| `npm run assets:upload` | 이미지 압축 & GitHub Pages 업로드 |
+| `npm run assets:upload` | 이미지 압축 & GitHub Pages 업로드 (`--allow-replace` 없이는 **이미 있는 원격 경로에 다른 내용 쓰기를 거부**합니다) |
 | `npm run lint:draft` | 초안 HTML 규칙 검증 (`--upload-result`, `--format text\|json`, `--strict`; exit 8=위반) |
 | `npm test` | 유닛 테스트 |
 | `npm run test:clock` | 시스템 시계를 옮긴 채 유닛 테스트 (`CLOCK_OFFSET_MS`) — 시간 종속 회귀 방어 |
@@ -175,7 +175,7 @@ error 적중 **하한 12건**, 그리고 **error도 warn도 놓치는 것이 0�
 |---|---|---|---|---|---|---|---|---|---|
 | `extract-exif.js` | 성공 | 일반 실패 | `--output` 쓰기 실패 | 지원 이미지 없음 | — | — | — | — | — |
 | `analyze-photos.js` | 성공 | 인자 오류 | `--output` 쓰기 실패 | 지원 이미지 없음 | — | — | — | — | — |
-| `upload-images.js` | 전부 정상 | 인자 오류(`--slug` 누락/붕괴)·업로드/검증 실패 | `--output` 쓰기 실패 | — | 품질 저하: fallback/oversize/치수 결손/계약 위반 | 날짜 출처 미상 — 업로드 거부 (멱등성 보호) | — | — | — |
+| `upload-images.js` | 전부 정상 | 인자 오류(`--slug` 누락/붕괴)·업로드/검증 실패 | `--output` 쓰기 실패 | — | 품질 저하: fallback/oversize/치수 결손 (계약 위반은 산출물이 없어 exit 1) | 날짜 출처 미상 — 업로드 거부 (멱등성 보호) | — | — | — |
 | `publish-post.js` | 성공 | 일반 실패 | — | — | — | — | 슬러그 미지정 거부 | 슬러그 검증 실패 | — |
 | `delete-post.js` | 성공 | 일반 실패 | — | — | — | — | — | 삭제 후 옛 URL이 살아 있음 | — |
 | `lint-draft.js` | 통과 | 인자/파일 오류 | — | — | — | — | — | — | 규칙 위반 (error 1건 이상) |

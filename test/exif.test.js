@@ -213,3 +213,89 @@ test('GPS ref의 NUL 패딩을 전 분기에서 벗긴다 (정상 좌표를 버�
   assert.equal(normalizeGps({ ...SEOUL, GPSLatitudeRef: 'X', GPSLongitudeRef: 'Y' }), null);
   assert.equal(normalizeGps({ ...SEOUL, GPSLatitudeRef: NUL, GPSLongitudeRef: NUL }), null);
 });
+
+// --- 22차 리뷰 회귀 ---
+
+test('checkDatePlausible — 존재하지 않는 날짜를 타당하다고 하지 않는다', () => {
+  // 이 파일에 이미 isValidCalendarDate가 있는데 checkDatePlausible만 그것을 부르지
+  // 않아, 달력에 없는 날짜가 "타당"으로 통과했다 (실측: 2026-02-30·2026-04-31·
+  // 2026-02-29 전부 null = 타당).
+  //
+  // 이 함수는 **EXIF 경로의 검증기**다 — extract-exif가 이걸로 date_status를 정하므로
+  // 통과한 값은 `ok`가 되어 primary_date가 되고, 폴더 경로로 공개 저장소에 push되고,
+  // 본문에 "지난 2월 30일"로 쓰이고, --slug-from-date로 Blogger URL에 **영구 고정**된다.
+  const { checkDatePlausible } = require('../lib/slug');
+  for (const bad of ['2026-02-30', '2026-04-31', '2026-02-29', '2026-06-31', '2026-13-01', '2026-00-10', '2026-05-00']) {
+    assert.match(String(checkDatePlausible(bad)), /(존재하지 않는|형식)/,
+      `${bad}를 타당하다고 판정함`);
+  }
+  // 이 테스트의 관심사는 **달력 유효성**이지 타당 범위가 아니므로 now를 고정한다.
+  // (첫 시도는 '2026-05-10'을 하드코딩해서, npm run test:clock이 시계를 2년 뒤로
+  //  돌리자 "미래 날짜"로 거부돼 실패했다 — 코드가 아니라 테스트의 시간 종속이었다.)
+  const at = { now: new Date('2026-06-01T00:00:00Z') };
+  // 윤년은 정확히 구별한다
+  assert.equal(checkDatePlausible('2024-02-29', at), null, '2024년은 윤년인데 거부함');
+  assert.match(String(checkDatePlausible('2026-02-29', at)), /존재하지 않는/, '2026년은 윤년이 아님');
+  // 정상 날짜는 그대로 통과
+  assert.equal(checkDatePlausible('2026-05-10', at), null);
+});
+
+test('checkDatePlausible — 세 검증기가 같은 판정을 낸다', () => {
+  // 달력 검사가 lib/slug.js·lib/session-state.js·scripts/upload-images.js에 각각
+  // 손으로 복제돼 있었고, 그 사이에 checkDatePlausible만 검사가 없었다. 그래서
+  // **되돌릴 수 없는 단계(공개 저장소 push·URL 고정)가 통과하고 되돌릴 수 있는
+  // 단계(session-state)가 exit 9로 죽는** 순서가 났다. SLUG_RE를 하나로 모은 것과
+  // 같은 이유로 같은 실수를 막는다 — 정본은 isValidCalendarDate 하나다.
+  const { checkDatePlausible, isValidCalendarDate } = require('../lib/slug');
+  const { defaultState } = require('../lib/session-state');
+
+  for (const d of ['2026-02-30', '2026-04-31', '2026-02-29', '2024-02-29', '2026-05-10']) {
+    const [y, mo, dd] = d.split('-').map(Number);
+    const calendarOk = isValidCalendarDate(y, mo, dd);
+    // checkDatePlausible이 달력 사유로 거부하는지
+    const plausibleMsg = checkDatePlausible(d);
+    const rejectedForCalendar = plausibleMsg !== null && /존재하지 않는/.test(plausibleMsg);
+    assert.equal(rejectedForCalendar, !calendarOk,
+      `${d}: isValidCalendarDate=${calendarOk} 인데 checkDatePlausible은 ${JSON.stringify(plausibleMsg)}`);
+
+    // session-state의 assertPrimaryDate도 같은 판정이어야 한다.
+    // **날짜 이외의 사유로 던진 것을 "날짜 거부"로 오독하지 않는다** — 첫 시도에서
+    // normalizeState가 다른 필수 필드 때문에 던져 2024-02-29를 거부한 것으로 보였다.
+    let stateError = null;
+    try {
+      defaultState('t', { primary_date: d });
+    } catch (e) { stateError = e.message; }
+    const stateRejectedForDate = stateError !== null && /달력 날짜/.test(stateError);
+    assert.equal(stateRejectedForDate, !calendarOk,
+      `${d}: session-state 판정이 다름 (error=${JSON.stringify(stateError)})`);
+  }
+});
+
+test('summarizeDates — date_status가 ok인 사진만 primary_date 후보다', () => {
+  // 예전에는 `!== 'implausible'` denylist였는데 date_status는 parse_error·read_error·
+  // missing도 된다. 그리고 상태를 정하는 extract-exif의 우선순위가 **parse_error를
+  // implausible보다 먼저** 보므로, 파싱이 깨진 사진에 1899-11-30이 실려 오면 그 값이
+  // primary_date가 됐다 (실측: 그 조합에 primaryDate = "1899-11-30").
+  //
+  // 오늘은 도달 불가지만(파싱이 깨지면 date가 null이 된다) 그건 다른 파일의 구현
+  // 세부에 기댄 안전이고, primary_date는 Blogger URL로 영구 고정되는 값이다.
+  const BAD = '1899-11-30T00:00:00+09:00';
+  for (const status of ['implausible', 'parse_error', 'read_error', 'missing']) {
+    assert.equal(
+      summarizeDates([{ date: BAD, date_status: status }]).primaryDate,
+      null,
+      `date_status="${status}"인 사진이 primary_date 후보가 됨`,
+    );
+  }
+  // ok는 후보다 (summarizeDates는 선언된 상태를 신뢰한다 — 타당성 판정은 호출자 몫)
+  assert.equal(summarizeDates([{ date: BAD, date_status: 'ok' }]).primaryDate, '1899-11-30');
+
+  // date_status가 없는 입력은 계속 받는다 (필드 도입 전 형식의 metadata JSON 호환)
+  assert.equal(summarizeDates([{ date: '2026-05-10T10:00:00+09:00' }]).primaryDate, '2026-05-10');
+
+  // 섞였을 때 ok만 센다
+  assert.equal(summarizeDates([
+    { date: BAD, date_status: 'parse_error' },
+    { date: '2026-05-10T10:00:00+09:00', date_status: 'ok' },
+  ]).primaryDate, '2026-05-10');
+});

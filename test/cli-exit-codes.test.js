@@ -665,3 +665,41 @@ test('create-draft/update-post: 깨진 이미지의 실패 이유를 버리지 �
     assert.doesNotMatch(r.stderr, /refresh token|invalid_grant/i, `${script}: API를 호출함`);
   }
 });
+
+test('upload-images: --metadata의 primary_date를 무검증으로 쓰지 않는다', (t) => {
+  // `--date`는 형식·달력을 검사하는데 이 경로는 아무 검사도 없었다 — 실측:
+  // `primary_date: "2026-02-30"`이 "날짜=2026-02-30 (EXIF primary_date)"를 찍고
+  // 그대로 진행했다. 그 값은 폴더 경로 `posts/2026-02-30-<hash>/`가 되어
+  // **공개 저장소에 push**되고, 그 뒤에 오는 loadSlugFromMetadata와 session-state는
+  // 같은 값을 거부한다 — 되돌릴 수 없는 단계가 통과하고 되돌릴 수 있는 단계가 죽는다.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-md-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const write = (primaryDate) => {
+    const f = path.join(dir, 'meta.json');
+    fs.writeFileSync(f, JSON.stringify({ primary_date: primaryDate, photos: [] }), 'utf8');
+    return f;
+  };
+
+  // 존재하지 않는 날짜 · 형식 위반은 업로드 전에 exit 1로 막는다
+  for (const bad of ['2026-02-30', '2026-04-31', '2026-02-29', '2026-13-01']) {
+    const r = run('upload-images.js', ['/nonexistent.jpg', '--slug', 'x', '--metadata', write(bad)]);
+    assert.equal(r.status, 1, `primary_date=${bad} status=${r.status}`);
+    assert.match(r.stderr, /(존재하지 않는 날짜|형식이 아닙니다)/, `${bad}: 이유를 말하지 않음`);
+    // 날짜를 채택했다는 로그가 나오면 검증을 통과한 것이다
+    assert.doesNotMatch(r.stderr, new RegExp(`날짜=${bad}`), `${bad}: 검증 없이 채택됨`);
+  }
+  for (const bad of ['2026/05/10', '20260510', 'not-a-date', '2026-5-10']) {
+    const r = run('upload-images.js', ['/nonexistent.jpg', '--slug', 'x', '--metadata', write(bad)]);
+    assert.equal(r.status, 1, `primary_date=${JSON.stringify(bad)} status=${r.status}`);
+    assert.match(r.stderr, /형식이 아닙니다/);
+  }
+
+  // 정상 날짜는 통과한다 (파일이 없어서 그 다음 단계에서 멈춘다)
+  const ok = run('upload-images.js', ['/nonexistent.jpg', '--slug', 'x', '--metadata', write('2024-02-29')]);
+  assert.match(ok.stderr, /날짜=2024-02-29/, '윤년 날짜를 막음');
+
+  // 달력에는 있으나 타당 범위 밖이면 차단하지 않고 경고한다 (--date와 같은 취급)
+  const old = run('upload-images.js', ['/nonexistent.jpg', '--slug', 'x', '--metadata', write('1899-11-30')]);
+  assert.match(old.stderr, /Warning/);
+  assert.match(old.stderr, /날짜=1899-11-30/, '타당 범위 밖 날짜를 차단함 (경고여야 한다)');
+});

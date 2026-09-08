@@ -74,7 +74,7 @@ node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --slug <
 
 종료 코드:
 - `extract-exif.js`: 0=성공, 1=일반 실패, 2=`--output` 쓰기 실패(stdout 미출력), 3=지원 이미지 없음
-- `upload-images.js`: 0=전부 정상, 1=인자 오류(`--slug` 누락/붕괴 포함)·업로드/검증 실패, 2=`--output` 쓰기 실패, 4=품질 저하(oversize/치수 결손/계약 위반/fallback), 5=날짜 출처 미상으로 업로드 거부 (`--metadata` 또는 `--date` 명시 필요, 멱등성 보호)
+- `upload-images.js`: 0=전부 정상, 1=인자 오류(`--slug` 누락/붕괴 포함)·업로드/검증 실패, 2=`--output` 쓰기 실패, 4=품질 저하(oversize/치수 결손/fallback — **계약 위반은 산출물이 없어 exit 1이다**), 5=날짜 출처 미상으로 업로드 거부 (`--metadata` 또는 `--date` 명시 필요, 멱등성 보호)
   - exit 4의 `fallback` 종류는 **WebP 입력에서만** 발생한다. 출력이 항상 `.webp`라서
     일반 카메라 사진(.jpg/.heic)의 sharp 실패는 폴백 대상이 아니고 exit 1로 끝난다.
     일반 사진에서 도달 가능한 exit 4는 `oversize`와 `치수 결손`이다.

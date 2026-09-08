@@ -159,3 +159,109 @@ test('getGitHubToken — gh 실패 이유를 버리지 않는다', () => {
   }
   stubbed = null;
 });
+
+// --- 22차 리뷰 회귀 ---
+
+test('escapeXml — XML이 표현할 수 없는 제어문자를 남기지 않는다', () => {
+  // XML 1.0은 C0 제어문자(0x0B VT, 0x0C FF, 0x01~0x08, 0x0E~0x1F)를 **어떤 인코딩으로도**
+  // 표현하지 못한다 (`&#11;`도 불허). 남겨 두면 libxml이 "PCDATA invalid Char value 11"로
+  // 죽는데, 그 실패가 sharp의 "Input buffer has corrupt header"로 감싸여
+  // **사진 문제로 오진**된다 (실측: WATERMARK_TEXT에 0x0B 한 글자 → fallbackUsed=true,
+  // watermarkApplied=false, 안내는 "원본 파일 점검 필요").
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'github-assets.js'), 'utf8');
+  const body = src.match(/function escapeXml\(value\)[\s\S]*?\n\}/);
+  assert.ok(body, 'escapeXml을 소스에서 찾지 못함');
+  // eval된 함수가 클로저로 집어간다 (lib과 같은 정의를 여기서 다시 쓴다 —
+  // 이 상수가 lib에서 사라지면 아래 단언이 깨져서 알 수 있다)
+  // eslint-disable-next-line no-unused-vars
+  const XML_ILLEGAL_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g;
+  // eslint-disable-next-line no-eval
+  const escapeXml = eval(`(${body[0]})`);
+
+  for (const cp of [0x00, 0x01, 0x08, 0x0B, 0x0C, 0x0E, 0x1F]) {
+    const out = escapeXml(`site${String.fromCodePoint(cp)}.com`);
+    assert.equal(out, 'site.com', `U+${cp.toString(16)} 가 남음: ${JSON.stringify(out)}`);
+  }
+  // XML이 허용하는 공백문자(tab/LF/CR)는 지우지 않는다
+  assert.equal(escapeXml('a\tb\nc\rd'), 'a\tb\nc\rd');
+  // 기존 이스케이프는 그대로
+  assert.equal(escapeXml('a&b<c>d"e\'f'), 'a&amp;b&lt;c&gt;d&quot;e&apos;f');
+});
+
+test('uploadAsset — 이미 있는 경로에 다른 내용을 조용히 덮어쓰지 않는다', async (t) => {
+  // 예전에는 기존 파일의 sha를 얻어 **무조건 PUT**하고, 커밋 메시지는 그대로
+  // "Add blog asset", 요약은 ok, 경고는 0건이었다. 그런데 CLAUDE.md는 멱등성을 위해
+  // **같은 slug를 유지하라**고 지시한다 — 사진을 하나 앞에 추가해 재실행하면
+  // photo-NN이 입력 argv 순서로 붙으므로 photo-01이 다른 사진이 되고, 이미 LIVE인
+  // 글의 이미지가 한 칸씩 밀려 **전부 바뀐다**. 되돌릴 수 없다.
+  const crypto = require('node:crypto');
+  const fsp = require('node:fs');
+  const os = require('node:os');
+  const pathMod = require('node:path');
+
+  const dir = fsp.mkdtempSync(pathMod.join(os.tmpdir(), 'pba-ua-'));
+  t.after(() => fsp.rmSync(dir, { recursive: true, force: true }));
+  const file = pathMod.join(dir, 'photo-01.webp');
+  const bytes = Buffer.from('IMAGE-BYTES-A');
+  fsp.writeFileSync(file, bytes);
+  // git blob object id — GitHub Contents API의 sha와 같은 값이다
+  const realSha = crypto.createHash('sha1')
+    .update(`blob ${bytes.length}\u0000`).update(bytes).digest('hex');
+
+  const puts = [];
+  const withStub = async (remoteSha, run) => {
+    puts.length = 0;
+    const saved = { ...process.env };
+    Object.assign(process.env, { GITHUB_TOKEN: 'x', GITHUB_OWNER: 'o', GITHUB_ASSET_REPO: 'r' });
+    const Module = require('node:module');
+    const origLoad = Module._load;
+    Module._load = function load(request, ...rest) {
+      if (request === 'axios') {
+        return {
+          get: async () => {
+            if (remoteSha === null) { const e = new Error('nf'); e.response = { status: 404 }; throw e; }
+            return { data: { sha: remoteSha } };
+          },
+          put: async (u, b) => { puts.push(b.message); return { data: {} }; },
+          head: async () => ({ status: 200 }),
+        };
+      }
+      return origLoad.call(this, request, ...rest);
+    };
+    const LIB = require.resolve('../lib/github-assets');
+    delete require.cache[LIB];
+    try { return await run(require(LIB)); } finally {
+      Module._load = origLoad;
+      delete require.cache[LIB];
+      for (const k of Object.keys(process.env)) delete process.env[k];
+      Object.assign(process.env, saved);
+    }
+  };
+
+  // 내용이 같으면 PUT 자체를 보내지 않는다 — 이것이 진짜 멱등이다
+  const same = await withStub(realSha, (ga) => ga.uploadAsset(file, 'posts/d/photo-01.webp'));
+  assert.equal(same.status, 'unchanged');
+  assert.equal(puts.length, 0, '같은 내용인데 PUT을 보냄 (커밋이 쌓인다)');
+
+  // 내용이 다르면 기본은 거부다 — PUT이 나가기 전에 막아야 한다
+  await withStub('deadbeef', async (ga) => {
+    await assert.rejects(
+      () => ga.uploadAsset(file, 'posts/d/photo-01.webp', { allowReplace: false }),
+      (e) => e.kind === 'replace' && /이미 발행된 글/.test(e.message),
+    );
+  });
+  assert.equal(puts.length, 0, '거부했는데 PUT이 나감');
+
+  // 명시적으로 허용하면 교체하고, 커밋 메시지가 사실을 말한다
+  const replaced = await withStub('deadbeef',
+    (ga) => ga.uploadAsset(file, 'posts/d/photo-01.webp', { allowReplace: true }));
+  assert.equal(replaced.status, 'replaced');
+  assert.match(puts[0], /^Replace /, `교체인데 커밋 메시지가 "${puts[0]}"`);
+
+  // 신규는 그대로 추가
+  const created = await withStub(null, (ga) => ga.uploadAsset(file, 'posts/d/photo-09.webp'));
+  assert.equal(created.status, 'created');
+  assert.match(puts[0], /^Add /);
+});
