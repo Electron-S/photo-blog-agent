@@ -1556,3 +1556,72 @@ test('img-dimensions-match는 치수 속성이 없을 때 중복 보고하지 �
   assert.deepEqual(rules('width="800" height="600"'), ['img-dimensions-match']);
   assert.deepEqual(rules('width="1024" height="768"'), []);
 });
+
+// --- 26차 리뷰 회귀 ---
+
+test('작성 시점 규칙이 블록 밖 텍스트를 버리지 않는다', () => {
+  // 25차가 블록 경계를 만들면서 세그먼트를 **태그 화이트리스트**로 모았다. 그러면
+  // 목록 밖에 있는 텍스트가 통째로 사라진다 — `<div>`·`<section>`·`<strong>`만으로
+  // 감싼 문장, 루트 바로 아래 맨 텍스트에서 error도 warn도 나오지 않았다 (실측).
+  //
+  // 같은 텍스트가 `bodyChars`에는 그대로 들어가므로 "글자수에는 본문, 작성 시점
+  // 규칙에는 본문 아님"이라는 비일관까지 생겼다. 이 규칙은 "오늘 다녀왔다"가
+  // LIVE로 나가는 것을 막는 **유일한 error**이고, warn 백스톱도 같은 배열을 써서
+  // 함께 죽었다 — 조용한 미탐이다.
+  //
+  // 그래서 판정을 "이 태그 안의 텍스트만 본다"가 아니라 "**여기서 자른다**"로 바꿨다.
+  const V = '오늘 남산에 다녀왔습니다.';
+  for (const html of [
+    `<div>${V}</div>`,
+    `<section>${V}</section>`,
+    `<article>${V}</article>`,
+    V,                                   // 루트 바로 아래 맨 텍스트
+    `<strong>${V}</strong>`,
+    `<div><span>${V}</span></div>`,
+    `<figure>${V}</figure>`,
+    `<p>앞 문단입니다.</p><div>${V}</div>`,
+  ]) {
+    const r = lintDraftHtml(html, {});
+    assert.ok(r.errors.some((e) => e.rule === 'no-writing-date-expression'),
+      `error가 침묵: ${html}`);
+    assert.ok(r.warnings.some((w) => w.rule === 'writing-date-word'),
+      `warn 백스톱도 침묵: ${html}`);
+  }
+
+  // 글자수와 규칙이 같은 텍스트를 본다 (한쪽만 세는 비일관이 없어야 한다)
+  const withDiv = lintDraftHtml(`<div>${V}</div>`, {});
+  const withP = lintDraftHtml(`<p>${V}</p>`, {});
+  assert.equal(withDiv.stats.bodyChars, withP.stats.bodyChars);
+});
+
+test('중첩 블록에서 텍스트를 중복 수집하지 않는다', () => {
+  // 바깥 컨테이너와 안쪽 블록을 따로 방문하면 같은 텍스트가 두 세그먼트에 들어가
+  // 같은 문구로 warn이 두 번 났다. 더 나쁜 것은 바깥 세그먼트가 **자식 블록 경계를
+  // 지워서**, 25차가 없앴다고 한 접합 오탐이 컨테이너 안에서 그대로 재현된 것이다.
+  const dup = lintDraftHtml('<ul><li><p>오늘 남산에 다녀왔습니다.</p></li></ul>', {});
+  assert.equal(dup.warnings.filter((w) => w.rule === 'writing-date-word').length, 1,
+    '같은 문구가 중복 보고됨');
+
+  // 컨테이너 안에서도 블록 경계가 살아 있어야 한다.
+  // 아래 목록은 경계가 **양쪽 모두** 필요하고 목록이 넓어야 통과한다:
+  //   - 블록 **앞**의 인라인 텍스트 → 여는 경계가 없으면 블록 텍스트와 붙는다
+  //   - 형제 <div> 두 개 → div가 경계 목록에 없으면 서로 붙는다
+  // (이 두 모양이 없을 때 "여는 경계 삭제"·"div 제거" 뮤테이션을 아무도 잡지 못했다.)
+  for (const html of [
+    '<blockquote><h3>이번 주 추천 코스</h3><p>남산에 다녀왔습니다.</p></blockquote>',
+    '<li><p>오늘의 목록</p><p>공원에 갔다.</p></li>',
+    '<td><h3>오늘 하루 정리</h3><p>산책로에 들렀습니다.</p></td>',
+    '앞 텍스트는 오늘의 목록<p>공원에 갔다.</p>',
+    '오늘 정리<div>공원에 갔다.</div>',
+    '<div>오늘 정리한 목록</div><div>공원에 갔다.</div>',
+    '<div>오늘의 메뉴</div><div>남산에 다녀왔습니다.</div>',
+    '<section>오늘 메뉴</section><section>다녀왔습니다.</section>',
+    '<h3>오늘 하루</h3>남산에 다녀왔습니다.',
+  ]) {
+    assert.equal(
+      lintDraftHtml(html, {}).errors.some((e) => e.rule === 'no-writing-date-expression'),
+      false,
+      `컨테이너 안에서 접합 오탐: ${html}`,
+    );
+  }
+});
