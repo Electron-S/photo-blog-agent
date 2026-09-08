@@ -9,7 +9,11 @@ const LIB = path.join(__dirname, '..', 'lib', 'github-assets.js');
 
 // sharp가 항상 실패하는 상황에서 집계가 정확한지 본다. 실제 sharp를 쓰면
 // "디코드 불가 파일"을 만들기 어렵고 테스트가 느려진다.
-function withFailingSharp(run) {
+// `async`로 두고 `await run(...)` 한다. 동기 finally로 복원하면 promise가
+// settle되기 **전에** 패치가 풀려, 지금은 lib이 sharp를 top-level require해서
+// 클로저가 스텁을 붙잡고 있는 덕에 우연히 통과한다. 그 require가 lazy로 바뀌면
+// 테스트가 실제 sharp를 쓰면서 **엉뚱한 이유로 계속 통과**한다.
+async function withFailingSharp(run) {
   const origLoad = Module._load;
   const fakeSharp = () => { throw new Error('Input buffer contains unsupported image format'); };
   fakeSharp.cache = () => {};
@@ -19,7 +23,7 @@ function withFailingSharp(run) {
   };
   delete require.cache[require.resolve(LIB)];
   try {
-    return run(require(LIB));
+    return await run(require(LIB));
   } finally {
     Module._load = origLoad;
     delete require.cache[require.resolve(LIB)];
