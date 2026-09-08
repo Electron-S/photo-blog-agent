@@ -92,7 +92,10 @@ node scripts/upload-images.js <이미지경로1> [이미지경로2] ... --slug <
    - 주차·꿀팁·메뉴 정보는 별도 섹션 없이 본문에 자연스럽게 녹임
    - 공식 홈페이지 링크는 실용 정보 근처나 마무리 단락에 배치
    - **방문 날짜 = metadata의 `primary_date`** (EXIF 촬영 날짜). 글 작성 시점(오늘)과 절대 혼동하지 말 것
-   - "오늘 다녀왔다" 같은 표현 금지. "지난 ○월 ○일", "○월 초" 등 EXIF 기반 표현 사용
+   - "오늘 다녀왔다" 같은 표현 금지. "지난 ○월 ○일", "○월 초" 등 EXIF 기반 표현 사용.
+     lint가 두 규칙으로 나눠 검사한다 — `no-writing-date-expression`(error, 직접 수식만)과
+     `writing-date-word`(warn, 지시어가 있기만 하면 보고). **warn이 떠도 확인할 것**:
+     error가 보수적으로 넘긴 형태일 수 있다 (고정 어구라면 무시해도 된다)
    - `primary_date`가 null이면 방문 날짜를 "확인 필요"로 두고 임의 날짜를 만들지 말 것
    - GPS 좌표가 있으면 장소 확인에 활용
 3. `scripts/create-draft.js`로 Blogger에 초안 생성 (이미지 URL 검증 포함)

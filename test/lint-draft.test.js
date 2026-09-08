@@ -756,3 +756,102 @@ test('캡션만으로는 이미지 다음 문장 요건을 채울 수 없다 (�
   // 캡션이 섞여 있어도 본문만 센다
   assert.deepEqual(stats(`${FIGURE}<div><figcaption>캡션.</figcaption><p>첫 문장입니다. 둘째 문장입니다.</p></div>`), [2]);
 });
+
+test('작성 시점 표현 — error는 정밀함, warn은 완전함 (왕복을 끝내는 분담)', () => {
+  // 이 규칙은 11·12·13차에 걸쳐 오탐↔미탐을 왕복했다. 원인은 개별 케이스가
+  // 아니라 **한 규칙에 두 일을 시킨 것**이다 — "시제 지시어가 이 방문 동사를
+  // 수식하는가"는 형태소 분석 질문인데 부분 문자열 매칭으로 답하려 했고,
+  // 한국어 표면형은 열거로 닫히지 않으므로 넓히면 오탐, 좁히면 미탐이었다.
+  //
+  // 이제 정밀함(error)과 완전함(warn)을 나눈다. error가 놓치는 형태는 warn이
+  // **열거 없이** 전부 표면화하므로, error를 넓힐 압력이 사라진다.
+  const of = (text) => {
+    const r = lintDraftHtml(`<p>${text}</p>`, {});
+    return {
+      error: r.errors.some((e) => e.rule === 'no-writing-date-expression'),
+      warn: r.warnings.some((w) => w.rule === 'writing-date-word'),
+    };
+  };
+
+  // 직접 수식 = error (+ 당연히 warn)
+  for (const t of ['오늘 다녀왔습니다', '오늘 재방문했습니다', '오늘 점심 먹으러 다녀왔습니다']) {
+    assert.deepEqual(of(t), { error: true, warn: true }, t);
+  }
+
+  // error가 보수적으로 넘기는 것들 — warn이 반드시 잡아야 한다.
+  // 여기가 왕복의 핵심이다: 미탐이 "조용한 통과"가 아니라 "보이는 warn"이 된다.
+  for (const t of [
+    '오늘 기준 가격이 조금 내려갔어요',
+    '오늘 하루가 어떻게 지나갔는지 모르겠다',
+    '지금 생각해보면 방문한 게 잘한 일이었다',
+    '이번 주 내내 비가 와서 못 갔다',
+    '지금은 자리가 없어서 다음에 방문하기로 했다',
+  ]) {
+    assert.deepEqual(of(t), { error: false, warn: true }, `warn이 놓침: ${t}`);
+  }
+
+  // 고정 어구는 둘 다 아니다 — warn이 시끄러워지면 무시당한다
+  for (const t of [
+    '오늘의 메뉴는 파스타였다',
+    '오늘처럼 늦은 점심에 가면 한가하다',
+    '어제오늘 이야기가 아니다',
+    '지금까지 가본 곳 중 최고였다',
+    '오늘날 이런 가게는 드물다',
+  ]) {
+    assert.deepEqual(of(t), { error: false, warn: false }, `고정 어구에 warn: ${t}`);
+  }
+
+  // EXIF 기반 표현은 아무것도 걸리지 않는다
+  for (const t of ['지난 5월 10일에 다녀왔다', '5월 초에 갔던 카페다', '지난달에 방문했던 곳이다']) {
+    assert.deepEqual(of(t), { error: false, warn: false }, t);
+  }
+});
+
+test('실초안 6건에 writing-date-word warn이 없다 (warn 노이즈 계량)', () => {
+  // warn이 매 초안마다 뜨면 무시당하고, 그러면 완전성 담당이 무력해진다.
+  // 실측 근거: 실초안 6건에서 시제 지시어는 총 1건("오늘처럼")이고 고정 어구다.
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const dir = path.join(__dirname, 'fixtures', 'drafts');
+  for (const f of fs.readdirSync(dir).filter((n) => n.endsWith('.html'))) {
+    const r = lintDraftHtml(fs.readFileSync(path.join(dir, f), 'utf8'), {});
+    const hits = r.warnings.filter((w) => w.rule === 'writing-date-word');
+    assert.deepEqual(hits, [], `${f}: warn 노이즈 ${JSON.stringify(hits)}`);
+  }
+});
+
+test('본문 텍스트 skip 목록이 글자수와 문장수에서 같다', () => {
+  // 목록이 갈려 있으면 한쪽에서 제외되는 텍스트가 다른 쪽에서 본문으로 셈된다.
+  // 실측 사고: <script>의 한국어 주석이 "이미지 다음 4문장"으로 세어져 **본문
+  // 없이** text-after-figure(error)를 통과했다. CLAUDE.md가 삽입을 권하는
+  // blogger-image-protection.html이 정확히 그 모양이다.
+  const FIGURE = '<figure style="margin:1.5em 0;text-align:center;position:relative;">'
+    + '<img src="https://x/p.webp" width="1024" height="768" loading="lazy" '
+    + 'alt="가게 외관" style="max-width:100%;height:auto;">'
+    + '<figcaption>정상 캡션입니다</figcaption></figure>';
+  const JS = '// 우클릭을 막습니다. 드래그도 막습니다. 이미지를 보호합니다.\n'
+    + 'document.oncontextmenu = function () { return false; };';
+  const CSS = 'img { pointer-events: none; } /* 이미지를 보호합니다. 드래그를 막습니다. */';
+
+  const stats = (html) => lintDraftHtml(html, {}).stats;
+  const blocked = (html) => lintDraftHtml(html, {}).errors
+    .some((e) => e.rule === 'text-after-figure');
+
+  for (const [label, tag, body] of [['script', 'script', JS], ['style', 'style', CSS]]) {
+    for (const wrap of [false, true]) {
+      const inner = `<${tag}>${body}</${tag}>`;
+      const html = FIGURE + (wrap ? `<div>${inner}</div>` : inner);
+      assert.deepEqual(stats(html).sentencesAfterFigure, [0],
+        `${label}${wrap ? '(래퍼)' : ''}의 텍스트가 본문 문장으로 셈됨`);
+      assert.equal(blocked(html), true, `${label}${wrap ? '(래퍼)' : ''}만으로 error를 통과`);
+      assert.equal(stats(html).bodyChars, 0);
+    }
+  }
+
+  // 진짜 본문이 있으면 통과하고, script는 글자수에 들어가지 않는다
+  const withBody = `${FIGURE}<script>${JS}</script><p>첫 문장입니다. 둘째 문장입니다.</p>`;
+  assert.deepEqual(stats(withBody).sentencesAfterFigure, [2]);
+  assert.equal(blocked(withBody), false);
+  assert.equal(stats(withBody).bodyChars,
+    require('../lib/korean-text').countChars('첫 문장입니다. 둘째 문장입니다.'));
+});

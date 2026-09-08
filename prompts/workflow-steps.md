@@ -130,6 +130,8 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/session-state.js update \
 작성 시 절대 규칙:
 
 - **방문 날짜 = EXIF `primary_date`**. 글 작성 시점(오늘)과 절대 혼동 금지. "오늘 다녀왔다" 금지, "지난 ○월 ○일", "○월 초" 등.
+  lint의 `writing-date-word`(warn)가 뜨면 **그 문장을 직접 확인합니다** — `no-writing-date-expression`(error)이
+  보수적으로 넘긴 형태일 수 있습니다. 고정 어구("오늘의 메뉴", "오늘처럼")라면 무시해도 됩니다.
 - `primary_date`가 null이거나 신뢰도 낮으면 "최근", "얼마 전" 등 모호 표현 사용 + `fact_check_notes`에 기록.
 - 이미지: WebP `<img>` 직접 사용 (`<picture>` 래퍼 X), `<figure style="margin:1.5em 0;text-align:center;position:relative;">`로 감쌈. `<img>`에 `loading="lazy"`, `width`, `height`(실제 치수), `style="max-width:100%;height:auto;"` 필수.
 - 이미지 직후에 `<h3>` 금지 (AdSense 정책). 이미지와 다음 이미지/광고 사이 2문장 이상 텍스트.
