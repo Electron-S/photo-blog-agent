@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { parseHtml } = require('../lib/html-parse');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -1408,4 +1409,150 @@ test('UTF-8이 아닌 인코딩의 초안을 차단한다', () => {
   }
   // 정상 UTF-8은 영향 없다
   assert.deepEqual(lintDraftHtml(src, {}).errors, []);
+});
+
+// --- 25차 리뷰 회귀 ---
+
+test('no-writing-date-expression은 블록 경계를 넘지 않는다', () => {
+  // `bodyText`는 문서 전체를 한 줄로 접은 문자열이라 `</h3><p>`·`</p><p>`·`<br>`
+  // 어디에도 경계가 없었다. 그래서 시제 지시어와 방문 동사가 **서로 다른 블록**에
+  // 있어도 창 안에 들어와 error가 났다. h3는 마침표로 끝나지 않고,
+  // prompts/blog-draft.md는 1,500자 이상이면 h3 3개를 **요구**하며 그 다음 블록은
+  // 항상 <p>다 — 프롬프트가 지시한 모양에서 바로 나오는 오탐이었다.
+  // 게다가 메시지가 인용한 "표현"은 초안 어디에도 없는 접합 문자열이라 검색해도
+  // 찾을 수 없었다 (예: "이번 주 추천 코스 남산에 다녀").
+  const blocked = (html) => lintDraftHtml(html, {}).errors
+    .some((e) => e.rule === 'no-writing-date-expression');
+
+  // 블록이 다르면 한 문장이 아니다
+  for (const html of [
+    '<h3>이번 주 추천 코스</h3>\n<p>남산에 다녀왔습니다. 좋았어요.</p>',
+    '<h3>오늘 하루 정리</h3>\n<p>남산 산책로에 들렀습니다.</p>',
+    '<h3>지금 인기 있는 코스</h3>\n<p>둘레길을 다녀왔어요.</p>',
+    '<p>오늘 정리한 목록</p><p>공원에 갔다.</p>',
+    '<ul><li>오늘의 메뉴</li><li>지난주에 다녀왔다</li></ul>',
+  ]) {
+    assert.equal(blocked(html), false, `블록 경계를 넘어 차단: ${html}`);
+  }
+
+  // <br>도 경계다 — korean-text의 splitSentences가 이미 그렇게 하는데 이 규칙만
+  // 아니었다 (BR_SENTINEL이 normalizeWhitespace에서 공백으로 접혀
+  // SENTENCE_END_RE의 NUL 분기가 죽어 있었다).
+  assert.equal(blocked('<p>오늘 정리한 목록<br>공원에 갔다.</p>'), false, '<br>이 경계가 아님');
+
+  // 같은 블록·같은 문장의 진짜 위반은 그대로 잡는다
+  for (const html of [
+    '<p>오늘 다녀왔습니다.</p>',
+    '<p>방금 남산에 다녀왔어요.</p>',
+    '<p>오늘 이 카페를 방문했습니다.</p>',
+    '<p>지금 막 들렀다 왔습니다.</p>',
+    '<h3>오늘 다녀온 남산</h3>',
+  ]) {
+    assert.equal(blocked(html), true, `진짜 위반을 놓침: ${html}`);
+  }
+
+  // 인용하는 조각이 초안에 **실재**해야 한다 (접합 문자열이면 검색이 안 된다)
+  const src = '<h3>어제 정리</h3><p>어제 다녀왔습니다.</p>';
+  const msg = lintDraftHtml(src, {}).errors
+    .find((e) => e.rule === 'no-writing-date-expression').message;
+  const quoted = msg.match(/"([^"]+)"/)[1];
+  const plain = src.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  assert.ok(plain.includes(quoted),
+    `인용 조각 ${JSON.stringify(quoted)} 가 초안에 없음 (블록 접합 문자열)`);
+
+  // **warn도 같은 조건이다.** warn은 판정 범위를 넓게 두는 것이 설계지만, 인용하는
+  // 조각이 초안에 실재하지 않으면 작성자가 검색해도 못 찾는다 — 그건 재현율이
+  // 아니라 진단 품질 문제다. (이 단언이 없을 때 warn을 bodyText로 되돌리는
+  //  뮤테이션을 아무도 잡지 못했다.)
+  const warnSrc = '<h3>이번 주 추천 코스</h3><p>남산에 다녀왔습니다.</p>'
+    + '<p>오늘 정리한 목록</p><p>공원에 갔다.</p>';
+  const warnPlain = warnSrc.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  for (const w of lintDraftHtml(warnSrc, {}).warnings.filter((x) => x.rule === 'writing-date-word')) {
+    const q = w.message.match(/"([^"]+)"/);
+    if (!q) continue;
+    assert.ok(warnPlain.includes(q[1]),
+      `warn의 인용 조각 ${JSON.stringify(q[1])} 가 초안에 없음 (블록 접합 문자열)`);
+  }
+});
+
+test('<p> 안의 블록 요소를 조용히 중첩하지 않는다', () => {
+  // 브라우저는 열린 <p> 안에서 블록 시작 태그를 만나면 <p>를 먼저 닫는다(스펙).
+  // 이 파서는 중첩시키고 errors가 빈 배열이었다. 그러면 followingSiblings가
+  // </p>에서 멈춰, 이미지 뒤에 문단이 두 개 보이는 초안에
+  // `text-after-figure: 0문장뿐입니다`(error)가 났다 — 진단이 능동적으로 오도하고
+  // 원인을 가리키는 오류는 하나도 없었다.
+  const FIG = '<figure style="margin:1.5em 0;text-align:center;position:relative;">'
+    + '<img src="https://x/a.webp" width="1024" height="768" loading="lazy" alt="설명" '
+    + 'style="max-width:100%;height:auto;"><figcaption>캡션입니다</figcaption></figure>';
+  const html = `<p>도입 문장입니다. 두 번째 문장입니다.${FIG}</p>\n`
+    + '<p>이미지 뒤 첫 문단입니다. 두 문장째입니다.</p><p>세 번째 문단입니다. 네 번째입니다.</p>';
+
+  const parsed = parseHtml(html);
+  assert.ok(parsed.errors.some((e) => e.code === 'block-in-paragraph'),
+    `구조 문제를 보고하지 않음: ${parsed.errors.map((e) => e.code).join(',')}`);
+
+  const r = lintDraftHtml(html, {});
+  assert.equal(r.errors.some((e) => e.rule === 'text-after-figure'), false,
+    '이미지 뒤에 문단이 둘인데 "0문장"으로 오탐');
+  assert.deepEqual(r.stats.sentencesAfterFigure, [4],
+    `figure 뒤 문장 수가 틀림: ${JSON.stringify(r.stats.sentencesAfterFigure)}`);
+
+  // 정상 구조(<p>를 닫고 figure)는 구조 오류가 없다
+  const okHtml = `<p>도입 문장입니다. 두 번째 문장입니다.</p>${FIG}`
+    + '<p>이미지 뒤 첫 문단입니다. 두 문장째입니다.</p>';
+  assert.deepEqual(parseHtml(okHtml).errors, []);
+});
+
+test('입력 끝에서 잘린 태그를 유령 요소로 만들지 않는다', () => {
+  // readAttributes가 입력 끝에 닿으면 malformed=null로 반환했다. void 태그는
+  // 스택에 안 올라가 미닫힘 검사도 못 받으므로, `<p>가.</p><img src=` 같은 잘린
+  // 파일이 **오류 0건**으로 통과하고 유령 <img>가 하나 생겼다. lint는 img 규칙
+  // 6건을 냈지만 그중 "파일이 잘렸다"를 가리키는 것은 하나도 없었다.
+  for (const html of ['<p>가나다.</p><img src=', '<figure><img src="a.webp" alt="x" wid', '<p>가.</p><img']) {
+    const r = parseHtml(html);
+    assert.ok(r.errors.some((e) => e.code === 'malformed-tag'),
+      `잘린 태그를 보고하지 않음: ${JSON.stringify(html)} → ${r.errors.map((e) => e.code).join(',')}`);
+  }
+  // 온전한 입력은 영향 없다
+  assert.deepEqual(parseHtml('<p>정상입니다.</p>').errors, []);
+  assert.deepEqual(parseHtml('<img src="a.webp">').errors, []);
+});
+
+test('<?…> 와 </<태그아님> 을 본문 텍스트로 남기지 않는다', () => {
+  // 브라우저는 둘 다 bogus comment로 '>'까지 버리는데, 이 파서는 본문 텍스트로
+  // 남겨 bodyChars를 부풀렸다 (실측: `<?xml …?>` 한 줄에 38자). body-min-chars는
+  // **하한**이라 과대 계산은 안전하지 않은 쪽이다. `<!` 경로가 같은 브라우저
+  // 동작을 bogus-declaration으로 보고하는 것과 비대칭이기도 했다.
+  const body = `<p>${'가나다라마바사아자차카타파하'.repeat(20)}.</p>`;
+  const base = lintDraftHtml(body, {}).stats.bodyChars;
+
+  for (const prefix of ['<?xml version="1.0" encoding="UTF-8"?>', '</ 3', '<?php echo 1; ?>']) {
+    const r = lintDraftHtml(prefix + body, {});
+    assert.equal(r.stats.bodyChars, base,
+      `${JSON.stringify(prefix)} 가 글자수에 ${r.stats.bodyChars - base}자 더해짐`);
+    assert.ok(r.errors.some((e) => e.rule === 'html-structure'),
+      `${JSON.stringify(prefix)} 를 조용히 통과시킴`);
+  }
+});
+
+test('img-dimensions-match는 치수 속성이 없을 때 중복 보고하지 않는다', () => {
+  // width/height가 없으면 img-width-height(error)가 이미 잡는데, 같은 img에 대해
+  // "본문 NaNxNaN, 실제 1024x768"이 추가로 떴다 — 한 원인에 error가 둘이고
+  // 그중 하나는 아무 정보도 주지 않는다.
+  const FIG = (dim) => '<figure style="margin:1.5em 0;text-align:center;position:relative;">'
+    + `<img src="https://x/posts/2026-05-10-abcdef123456/photo-01.webp" ${dim} `
+    + 'loading="lazy" alt="설명" style="max-width:100%;height:auto;">'
+    + '<figcaption>캡션입니다</figcaption></figure>';
+  const uploadResult = { images: [{
+    webpUrl: 'https://x/posts/2026-05-10-abcdef123456/photo-01.webp', width: 1024, height: 768,
+  }] };
+  const rules = (dim) => lintDraftHtml(FIG(dim), { uploadResult }).errors
+    .filter((e) => e.rule.startsWith('img-')).map((e) => e.rule);
+
+  assert.deepEqual(rules(''), ['img-width-height'], '속성이 없는데 치수 대조까지 보고');
+  assert.deepEqual(rules('width="abc" height="768"'), ['img-width-height']);
+  assert.deepEqual(rules('width="0" height="768"'), ['img-width-height']);
+  // 값이 있고 실제로 다르면 대조 규칙이 잡는다
+  assert.deepEqual(rules('width="800" height="600"'), ['img-dimensions-match']);
+  assert.deepEqual(rules('width="1024" height="768"'), []);
 });
