@@ -193,4 +193,23 @@ test('OAuth가 200인데 토큰이 없으면 Blogger 401로 둔갑시키지 않�
   // 정상 토큰이면 Blogger 층까지 간다 (여기서 401이 나는 것은 진짜 Blogger 응답이다)
   const ok = await messageOf({ status: 200, data: { access_token: 'tok' } });
   assert.match(ok, /Blogger API/);
+
+  // **한 메시지 안에서 두 줄이 모순되면 안 된다.** 이 오류는 `.response`가 없는
+  // 평범한 Error라, 마커가 없으면 wrapTokenError가 "응답이 없으니 전송 계층 실패"로
+  // 오분류해 `+ Google OAuth 엔드포인트에 닿지 못했습니다`를 덧붙였다 — 첫 줄은
+  // "HTTP 200을 돌려줬는데", 둘째 줄은 "닿지 못했다"였다 (실측). 그렇다고 response를
+  // 실으면 이번엔 FIX_HINT 기본값인 "REFRESH_TOKEN을 확인하세요"가 붙어, 이 검사가
+  // 없애려던 오안내가 돌아온다.
+  for (const data of [{}, '<html>Sign in to WiFi</html>', { expires_in: 3600 }]) {
+    const msg = await messageOf({ status: 200, data });
+    assert.doesNotMatch(msg, /닿지 못했습니다/,
+      `"HTTP 200을 받았다"와 "닿지 못했다"가 한 메시지에 함께 있음:\n${msg}`);
+    assert.doesNotMatch(msg, /BLOGGER_REFRESH_TOKEN \/ CLIENT_ID/,
+      `자격증명 재발급을 권함 (이 상황에 듣지 않는다):\n${msg}`);
+  }
+
+  // 상태 코드마다 읽는 법이 달라 조사를 고정할 수 없다. status가 없는 응답도 있다.
+  const noStatus = await messageOf({ data: {} });
+  assert.doesNotMatch(noStatus, /HTTP undefined/, `status가 없는데 "HTTP undefined": ${noStatus}`);
+  assert.match(noStatus, /응답을 돌려줬는데/);
 });

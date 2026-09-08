@@ -1254,13 +1254,29 @@ test('가드 존치 기준 — 오탐을 막지 않는 가드는 미탐만 만�
 test('새 표면형 계량 — error 오탐 0, 미탐은 warn이 전부 덮는다', () => {
   // 왕복이 끝났다고 판단하는 근거. error는 정당한 문장을 하나도 막지 않고,
   // 놓치는 것은 warn이 전부 표면화한다. 이 수치가 나빠지면 설계를 다시 봐야 한다.
-  const of = (text) => {
-    const r = lintDraftHtml(`<p>${text}</p>`, {});
+  // **여러 래핑으로 돌린다.** 예전에는 `<p>${text}</p>` 하나뿐이었고, 그래서
+  // 25차가 세그먼트를 태그 화이트리스트로 만들어 `<div>`·`<section>`·`<strong>`·
+  // 맨 텍스트에서 error가 전부 침묵했을 때 **이 테스트가 한 건도 잡지 못했다**
+  // (세 리비전에서 `<p>` 래핑 수치가 동일했다). 회귀 방어선으로 신뢰되는 계량이면
+  // 래핑도 계량 대상이어야 한다.
+  const WRAPPINGS = [
+    (t) => `<p>${t}</p>`,
+    (t) => t,                                   // 루트 바로 아래 맨 텍스트
+    (t) => `<div>${t}</div>`,
+    (t) => `<section>${t}</section>`,
+    (t) => `<strong>${t}</strong>`,
+    (t) => `<li>${t}</li>`,
+    (t) => `<blockquote><p>${t}</p></blockquote>`,
+    (t) => `<td>${t}</td>`,
+  ];
+  const ofWrapped = (wrap, text) => {
+    const r = lintDraftHtml(wrap(text), {});
     return {
       error: r.errors.some((e) => e.rule === 'no-writing-date-expression'),
       warn: r.warnings.some((w) => w.rule === 'writing-date-word'),
     };
   };
+  const of = (text) => ofWrapped(WRAPPINGS[0], text);
 
   const VIOLATION = [
     '오늘 오후에 다녀왔어요', '오늘 저녁에 들렀습니다', '오늘 낮에 방문했어요',
@@ -1304,6 +1320,23 @@ test('새 표면형 계량 — error 오탐 0, 미탐은 warn이 전부 덮는�
   // error 적중률도 계량으로 고정한다 (떨어지면 원인을 확인해야 한다)
   const caught = VIOLATION.filter((t) => of(t).error).length;
   assert.ok(caught >= 12, `error 적중이 ${caught}/${VIOLATION.length}로 떨어졌다`);
+
+  // **세 수치가 래핑과 무관해야 한다.** 문장이 어떤 블록에 담겼는지는 그 문장이
+  // 위반인지와 아무 상관이 없다 — 달라지면 계량이 아니라 담는 그릇을 재고 있는 것이다.
+  for (const wrap of WRAPPINGS) {
+    const label = wrap('X');
+    const fp = LEGIT.filter((t) => ofWrapped(wrap, t).error);
+    assert.deepEqual(fp, [], `${label}: 정당한 문장을 차단 — ${fp.join(' / ')}`);
+
+    const miss = VIOLATION.filter((t) => {
+      const x = ofWrapped(wrap, t);
+      return !x.error && !x.warn;
+    });
+    assert.deepEqual(miss, [], `${label}: error도 warn도 놓침 — ${miss.join(' / ')}`);
+
+    const hits = VIOLATION.filter((t) => ofWrapped(wrap, t).error).length;
+    assert.ok(hits >= 12, `${label}: error 적중이 ${hits}/${VIOLATION.length}`);
+  }
 });
 
 test('alt에 보이지 않는 문자만 있으면 img-alt-nonempty가 잡는다', () => {
