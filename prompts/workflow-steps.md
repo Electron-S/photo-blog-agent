@@ -62,6 +62,27 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/analyze-photos.js <사진들> 
 
 exit 코드: 2(`--output` 쓰기 실패), 3(지원 이미지 없음) → EXIF 추출과 동일하게 root cause 진단.
 
+### Step 0 — 세션 재개 (정본)
+
+두 진입점(`/blog`, `blog-agent`)이 공유하는 재개 계약입니다. **진입점 파일에
+복제하지 말고 이 절을 따릅니다** — 복제가 드리프트의 원인이었습니다.
+
+```bash
+node /home/cyyoo/develop/photo-blog-agent/scripts/session-state.js read \
+  --slug <slug> --dir /home/cyyoo/develop/photo-blog-agent/tmp
+```
+
+- **`--dir`를 반드시 붙입니다.** 기본값은 `tmp/`(**cwd 상대**)라서, 진입 프로브가
+  절대 경로로 찾은 세션을 재개 시점에 "session-state가 없습니다"로 놓칠 수 있습니다.
+- **exit 9면 재개하지 않습니다.** 상태 파일의 불변식이 깨진 것이라
+  `steps_remaining`을 믿을 수 없습니다 — 이미 발행된 글을 처음부터 다시 만들어
+  **중복 발행**이 될 수 있습니다 (CLAUDE.md "URL 슬러그 — 절대 규칙"의 사고 경로).
+  출력된 경고와 JSON의 `degraded: true`를 사용자에게 보여주고, 무엇이 실제로
+  끝났는지 확인한 뒤 `update --complete`(필요하면 `--post-id`)로 고치고 다시 시도합니다.
+- exit 0이면 `steps_remaining[0]`에 해당하는 Step으로 점프합니다:
+  `exif`→Step 1, `photo_analysis`→Step 2.5, `upload`→Step 3, `research`→Step 4,
+  `draft`→Step 5, `publish`→Step 7.
+
 ### Step 3 — 이미지 업로드 (멱등성 핵심)
 
 **한 세션에서 slug는 딱 한 번만 정합니다.** 한 번 정한 slug를 모든 후속 호출(업로드, 초안 작성)에서 동일하게 씁니다. 다른 slug로 재호출하면 중복 폴더가 생성되어 깨집니다.

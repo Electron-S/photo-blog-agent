@@ -24,7 +24,7 @@ tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, Task
 **0순위 — 진행 중 세션이 있으면** ("(진행 중 세션 없음)"이 아니면):
 - 가장 최근 세션의 `slug`·`completed`·`remaining`·`post_id`를 한두 문장으로 요약.
 - "이어서 진행할까요, 처음부터 다시 할까요?"라고 묻습니다.
-- 사용자가 **"이어서"** → `node scripts/session-state.js read --slug <slug>`로 상태를 읽고 `steps_remaining[0]`에 해당하는 단계로 점프.
+- 사용자가 **"이어서"** → `prompts/workflow-steps.md`의 **"Step 0 — 세션 재개 (정본)"** 절을 따릅니다. 그 절이 `--dir` 절대 경로와 **exit 9면 재개하지 않는다**는 규칙을 담고 있습니다.
 - 사용자가 **"처음부터"** → 해당 session-state 파일과 동일 slug의 `draft-<slug>.html`을 사용자 확인 후 삭제. metadata/photo-analysis는 멱등하므로 보존.
 - 여러 세션이 있으면 어느 것을 이어갈지 명시적으로 물음.
 

@@ -790,15 +790,49 @@ test('작성 시점 표현 — error는 정밀함, warn은 완전함 (왕복을 
     assert.deepEqual(of(t), { error: false, warn: true }, `warn이 놓침: ${t}`);
   }
 
-  // 고정 어구는 둘 다 아니다 — warn이 시끄러워지면 무시당한다
+  // **고정 어구는 error만 면제한다.** 면제를 warn에 붙였던 것이 14차의 설계
+  // 실패였다 — 담당이 뒤바뀌어 "오늘의 추천 메뉴를 먹으러 방문했습니다"가
+  // error로 차단되고 warn은 침묵했다. 면제는 정밀함(error) 쪽에 붙고,
+  // 완전함(warn)은 지시어가 있다는 사실 자체를 보고한다.
+  //
+  // **반드시 방문 동사를 포함시킨다.** 14차 테스트는 `가본`·`가면`처럼
+  // stem이 아닌 활용형만 써서 면제와 error의 상호작용을 한 번도 실행하지
+  // 않았다 — 그래서 261건이 통과하는데도 결함이 살아 있었다.
   for (const t of [
-    '오늘의 메뉴는 파스타였다',
-    '오늘처럼 늦은 점심에 가면 한가하다',
-    '어제오늘 이야기가 아니다',
-    '지금까지 가본 곳 중 최고였다',
-    '오늘날 이런 가게는 드물다',
+    '오늘의 추천 메뉴를 먹으러 방문했습니다',
+    '오늘처럼 늦은 점심에 갔더니 한산했습니다',
+    '지금까지 다녀온 카페 중에 제일 조용했습니다',
+    '지금껏 다녀본 곳과는 분위기가 달랐습니다',
+    '오늘의 나들이 코스로 들렀습니다',
   ]) {
-    assert.deepEqual(of(t), { error: false, warn: false }, `고정 어구에 warn: ${t}`);
+    assert.deepEqual(of(t), { error: false, warn: true }, `고정 어구가 error로 차단됨: ${t}`);
+  }
+
+  // 과거 표지가 있으면 방문 시점을 명시한 정본 표현이다 (CLAUDE.md가 요구하는 형태)
+  for (const t of [
+    '오늘은 지난달에 다녀온 카페를 정리해봅니다',
+    '오늘은 작년에 방문했던 곳을 다시 꺼내봅니다',
+    '오늘, 예전에 다녀왔던 곳을 정리합니다',
+    '오늘은 그때 들렀던 가게 이야기입니다',
+    '지금 정리하는 글은 5월에 다녀온 기록입니다',
+  ]) {
+    assert.deepEqual(of(t), { error: false, warn: true }, `정본 표현이 차단됨: ${t}`);
+  }
+
+  // `방문`이 명사구일 때는 방문 주장이 아니다
+  for (const t of [
+    '오늘 방문 예약은 마감이라고 적혀 있었습니다',
+    '오늘 기준 방문객이 많다는 후기가 보입니다',
+    '지금 인기 방문 코스로 소개되어 있습니다',
+    '오늘 방문 후기를 정리했습니다',
+  ]) {
+    assert.deepEqual(of(t), { error: false, warn: true }, `명사구가 차단됨: ${t}`);
+  }
+
+  // 서술어가 붙으면 방문 주장이다
+  for (const t of ['오늘 방문했습니다', '오늘 방문해서 사진을 찍었습니다',
+    '지금 방문 중입니다', '오늘 첫방문이라 설렜습니다']) {
+    assert.deepEqual(of(t), { error: true, warn: true }, `방문 주장을 놓침: ${t}`);
   }
 
   // EXIF 기반 표현은 아무것도 걸리지 않는다
@@ -807,17 +841,26 @@ test('작성 시점 표현 — error는 정밀함, warn은 완전함 (왕복을 
   }
 });
 
-test('실초안 6건에 writing-date-word warn이 없다 (warn 노이즈 계량)', () => {
+test('실초안 6건의 writing-date-word warn 노이즈를 계량으로 고정한다', () => {
   // warn이 매 초안마다 뜨면 무시당하고, 그러면 완전성 담당이 무력해진다.
-  // 실측 근거: 실초안 6건에서 시제 지시어는 총 1건("오늘처럼")이고 고정 어구다.
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const dir = path.join(__dirname, 'fixtures', 'drafts');
-  for (const f of fs.readdirSync(dir).filter((n) => n.endsWith('.html'))) {
-    const r = lintDraftHtml(fs.readFileSync(path.join(dir, f), 'utf8'), {});
-    const hits = r.warnings.filter((w) => w.rule === 'writing-date-word');
-    assert.deepEqual(hits, [], `${f}: warn 노이즈 ${JSON.stringify(hits)}`);
+  // 실측: 6건 중 1건에서 1회("오늘처럼 늦은 점심") — 고정 어구이므로 error는
+  // 침묵하고 warn만 뜬다. 이 수치가 늘면 warn 설계를 다시 봐야 한다.
+  const fsMod = require('node:fs');
+  const pathMod = require('node:path');
+  const dir = pathMod.join(__dirname, 'fixtures', 'drafts');
+  const counts = {};
+  for (const f of fsMod.readdirSync(dir).filter((n) => n.endsWith('.html'))) {
+    const r = lintDraftHtml(fsMod.readFileSync(pathMod.join(dir, f), 'utf8'), {});
+    counts[f] = r.warnings.filter((w) => w.rule === 'writing-date-word').length;
+    // error는 실초안에서 절대 뜨지 않아야 한다 (발행이 막힌다)
+    assert.deepEqual(
+      r.errors.filter((e) => e.rule === 'no-writing-date-expression'),
+      [],
+      `${f}: 실초안이 error로 차단됨`,
+    );
   }
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  assert.equal(total, 1, `warn 노이즈가 늘었다: ${JSON.stringify(counts)}`);
 });
 
 test('본문 텍스트 skip 목록이 글자수와 문장수에서 같다', () => {
@@ -854,4 +897,115 @@ test('본문 텍스트 skip 목록이 글자수와 문장수에서 같다', () =
   assert.equal(blocked(withBody), false);
   assert.equal(stats(withBody).bodyChars,
     require('../lib/korean-text').countChars('첫 문장입니다. 둘째 문장입니다.'));
+});
+
+test('본문 텍스트가 아닌 태그를 모든 규칙이 같게 제외한다', () => {
+  // skip 목록이 규칙마다 갈려 있으면 한쪽에서 제외되는 텍스트가 다른 쪽에서
+  // 본문으로 셈된다. 14차에 bodyChars/textAfterFigure만 통일했고 세 곳이 남았다.
+  const CSS = `img{pointer-events:none}${'.a{b:c}'.repeat(50)}`;
+  const has = (html, rule) => {
+    const r = lintDraftHtml(html, {});
+    return r.errors.concat(r.warnings).some((e) => e.rule === rule);
+  };
+
+  // no-emoji(error) — CSS/JS 안의 이모지로 발행이 막히면 작성자는 본문에서
+  // 그 이모지를 찾을 수 없다
+  assert.equal(has('<p>본문입니다. 둘째 문장입니다.</p><style>/* 좋아요 ❤️ */</style>', 'no-emoji'),
+    false, 'style 안 이모지가 발행을 막음');
+  assert.equal(has('<p>본문입니다. 둘째 문장입니다.</p><script>// ❤️</script>', 'no-emoji'),
+    false, 'script 안 이모지가 발행을 막음');
+  // 본문·캡션의 이모지는 여전히 금지다
+  assert.equal(has('<p>본문입니다 ❤️. 둘째 문장입니다.</p>', 'no-emoji'), true);
+
+  // p-max-chars / p-sentence-count
+  assert.equal(has(`<p>짧은 본문입니다. 둘째 문장입니다.<style>${CSS}</style></p>`, 'p-max-chars'),
+    false, 'p 안의 CSS가 글자수로 셈됨');
+});
+
+test('h3-placement가 래퍼에 무력화되지 않는다', () => {
+  // elementChildren(root)만 보면 <div>로 감싼 h3의 indexOf가 -1이 되어
+  // **규칙이 0개를 검사한다** (발견이 줄어드는 게 아니라 무력화).
+  const H3 = '<h3>제목입니다</h3>';
+  const P = '<p>본문 문장입니다. 둘째 문장입니다.</p>';
+  const warned = (html) => lintDraftHtml(html, {}).warnings
+    .some((w) => w.rule === 'h3-placement');
+
+  for (const [label, html] of [
+    ['평면 h3-first', H3 + P],
+    ['래퍼 h3-first', `<div>${H3}</div>${P}`],
+    ['평면 h3-last', P + H3],
+    ['래퍼 h3-last', `${P}<div>${H3}</div>`],
+  ]) {
+    assert.equal(warned(html), true, `${label}: 규칙이 검사하지 않음`);
+  }
+  // 정상 배치는 경고하지 않는다
+  assert.equal(warned(`${P}${H3}${P}`), false);
+  assert.equal(warned(`${P}<div>${H3}</div>${P}`), false);
+});
+
+test('figcaption-generic이 숫자 없는 제네릭 캡션도 잡는다', () => {
+  // 예전 패턴은 `\d+`가 필수라서 가장 제네릭한 형태를 놓쳤다.
+  const FIGCAP = (cap) => '<figure style="margin:1.5em 0;text-align:center;position:relative;">'
+    + '<img src="https://x/p.webp" width="1024" height="768" loading="lazy" alt="가게 외관" '
+    + `style="max-width:100%;height:auto;"><figcaption>${cap}</figcaption></figure>`;
+  const blocked = (cap) => lintDraftHtml(FIGCAP(cap), {}).errors
+    .some((e) => e.rule === 'figcaption-generic');
+
+  for (const cap of ['사진', '이미지', '그림', 'photo', 'Image',
+    '사진 - 1', '사진1', '이미지 03', '사진 2.']) {
+    assert.equal(blocked(cap), true, `제네릭 캡션을 놓침: ${cap}`);
+  }
+  for (const cap of ['해질녘 가게 앞 풍경입니다', '사진 속 간판이 인상적이었다',
+    '이미지 왼쪽이 입구다']) {
+    assert.equal(blocked(cap), false, `장면 설명을 차단: ${cap}`);
+  }
+});
+
+test('부정 표현이 뒤따르는 금칙 어구는 warn하지 않는다', () => {
+  // 부분 문자열 매칭의 한계. warn 등급이라 차단은 아니지만, 시끄러운 warn은
+  // 무시당해 규칙이 무력해진다.
+  const warned = (text, rule) => lintDraftHtml(`<p>${text}</p>`, {}).warnings
+    .some((w) => w.rule === rule);
+
+  for (const [text, rule] of [
+    ['부인할 수 없는 맛이었다', 'spouse-wording'],
+    ['완벽한 날씨는 아니었습니다', 'overclaim-phrase'],
+    ['최고의 선택은 아니었어요', 'overclaim-phrase'],
+    ['수익형 블로그와는 무관합니다', 'no-ad-encouragement'],
+  ]) {
+    assert.equal(warned(text, rule), false, `오탐: [${rule}] ${text}`);
+  }
+
+  // 진짜 위반은 여전히 warn
+  for (const [text, rule] of [
+    ['강력 추천합니다', 'overclaim-phrase'],
+    ['완벽한 하루였다', 'overclaim-phrase'],
+    ['부인과 함께 갔다', 'spouse-wording'],
+    ['개인적으로는 좋았다', 'ai-tell-phrase'],
+  ]) {
+    assert.equal(warned(text, rule), true, `놓침: [${rule}] ${text}`);
+  }
+});
+
+test('writing-date-word가 겹치는 지시어를 중복 보고하지 않는다', () => {
+  // `이번 주`와 `이번 주말`이 둘 다 목록에 있어 한 문장에 동일한 warn 2건이 났다.
+  // warn이 시끄러워지면 무시당해 완전성 담당이 무력해진다.
+  const count = (text) => lintDraftHtml(`<p>${text}</p>`, {}).warnings
+    .filter((w) => w.rule === 'writing-date-word').length;
+  assert.equal(count('이번 주말에 다녀왔습니다. 좋았습니다.'), 1);
+  assert.equal(count('이번 주에 다녀왔습니다.'), 1);
+  // 서로 다른 자리의 서로 다른 지시어는 각각 보고한다
+  assert.equal(count('어제 갔고 오늘 또 다녀왔습니다.'), 2);
+});
+
+test('link-target-rel은 외부 링크에만 적용된다', () => {
+  // target="_blank"는 외부로 나가는 링크에만 의미가 있다.
+  const warned = (href) => lintDraftHtml(`<p><a href="${href}">링크</a></p>`, {}).warnings
+    .some((w) => w.rule === 'link-target-rel');
+  for (const href of ['#section', '/relative/path', 'mailto:a@b.c', 'tel:+8210']) {
+    assert.equal(warned(href), false, `내부/특수 링크에 경고: ${href}`);
+  }
+  for (const href of ['https://example.com', 'http://example.com/a']) {
+    assert.equal(warned(href), true, `외부 링크를 놓침: ${href}`);
+  }
 });
