@@ -1009,3 +1009,106 @@ test('link-target-rel은 외부 링크에만 적용된다', () => {
     assert.equal(warned(href), true, `외부 링크를 놓침: ${href}`);
   }
 });
+
+test('방문의 서술어 판정 — 1음절 이/중이 명사 접두를 삼키지 않는다', () => {
+  // `\s*(?:…|중|이|…)`처럼 1음절로 두면 `\s*`가 공백까지 먹어 `방문 이용/이력/
+  // 이후/이유/이벤트`, `방문 중간/중요/중단`이 전부 "서술어가 붙었다"로 판정돼
+  // error 차단됐다. 이 규칙이 고치겠다고 선언한 FP 클래스 그 자체이고,
+  // CLAUDE.md가 요구하는 "이용 안내를 본문에 녹여라"와 충돌한다.
+  const hit = (text) => lintDraftHtml(`<p>${text}</p>`, {}).errors
+    .some((e) => e.rule === 'no-writing-date-expression');
+
+  for (const ok of [
+    '오늘 기준 방문 이용 안내는 홈페이지에 있습니다.',
+    '오늘 기준 방문 중단 안내가 붙어 있었습니다.',
+    '지금 방문 이벤트가 진행됩니다.',
+    '지금 방문 이유를 정리해봅니다.',
+    '오늘 방문 이력이 있습니다.',
+    '지금 방문 중요도가 높습니다.',
+    '오늘 방문 이후로 자주 갑니다.',
+    '오늘 방문 중간에 비가 왔습니다.',
+    '오늘 기준 방문 인원 제한이 있습니다.',
+    '오늘 방문 예약은 마감되었습니다.',
+  ]) {
+    assert.equal(hit(ok), false, `명사구가 차단됨: ${ok}`);
+  }
+
+  // 서술어가 붙으면 방문 주장이다 — 계사 활용형도 포함
+  for (const bad of [
+    '오늘 방문했습니다.', '오늘 방문해서 사진을 찍었습니다.', '지금 방문 중입니다.',
+    '오늘 첫방문이라 설렜습니다.', '오늘 재방문입니다.', '오늘 방문이었습니다.',
+    '오늘 방문이다.', '지금 방문 중이었습니다.',
+  ]) {
+    assert.equal(hit(bad), true, `방문 주장을 놓침: ${bad}`);
+  }
+});
+
+test('과거 표지 — 숫자+월/일은 과거 조사와 함께일 때만', () => {
+  // `\d+월`·`\d+일`을 단독으로 두면 진짜 위반을 면제한다. `오늘 + 다녀왔다`는
+  // 이 규칙이 존재하는 이유 그 자체다.
+  const hit = (text) => lintDraftHtml(`<p>${text}</p>`, {}).errors
+    .some((e) => e.rule === 'no-writing-date-expression');
+
+  for (const bad of [
+    '오늘 3일 만에 다시 다녀왔습니다.',
+    '오늘 5월 들어 처음 다녀왔습니다.',
+    '오늘 5월 마지막 날 다녀왔습니다.',
+    '오늘 2일차 일정으로 갔습니다.',
+    '오늘 4일 연속 갔습니다.',
+  ]) {
+    assert.equal(hit(bad), true, `면제되어 놓침: ${bad}`);
+  }
+
+  // 진짜 과거 표지는 여전히 면제한다 (CLAUDE.md가 요구하는 정본 표현)
+  for (const ok of [
+    '오늘은 지난달에 다녀온 카페를 정리해봅니다',
+    '오늘은 작년에 방문했던 곳을 다시 꺼내봅니다',
+    '오늘, 예전에 다녀왔던 곳을 정리합니다',
+    '지금 정리하는 글은 5월에 다녀온 기록입니다',
+    '오늘은 5월 10일에 다녀온 기록입니다',
+    '오늘은 며칠 전에 다녀온 곳 이야기입니다',
+  ]) {
+    assert.equal(hit(ok), false, `정본 표현이 차단됨: ${ok}`);
+  }
+});
+
+test('부정 필터 — 없/않은 강조의 구성 요소라 면제하지 않는다', () => {
+  // 한국어에서 `없`·`않`은 부정보다 **강조의 관용 구성 요소**로 더 흔하다.
+  // 14자 창에 들어오면 과장 표현을 **강화하는** 문맥이 전부 면제됐다.
+  // 이 세 규칙은 error/warn 2단 구조가 없어서, 면제되면 신호가 0이 된다.
+  const warned = (text, rule) => lintDraftHtml(`<p>${text}</p>`, {}).warnings
+    .some((w) => w.rule === rule);
+
+  for (const [text, rule] of [
+    ['강력 추천, 후회 없을 겁니다.', 'overclaim-phrase'],
+    ['최고의 맛, 두말할 것 없습니다.', 'overclaim-phrase'],
+    ['완벽한 코스, 부족함이 없었다.', 'overclaim-phrase'],
+    ['무조건 가야 하는 곳, 이견 없습니다.', 'overclaim-phrase'],
+    ['개인적으로는 아쉬움이 없었습니다.', 'ai-tell-phrase'],
+    ['가성비가 좋다는 말밖에 없다.', 'ai-tell-phrase'],
+    ['광고 클릭 유도는 하지 않습니다.', 'no-ad-encouragement'],
+  ]) {
+    assert.equal(warned(text, rule), true, `강화 문맥이 면제됨: [${rule}] ${text}`);
+  }
+
+  // 계사 부정은 여전히 면제한다 (조사구가 끼는 경우까지)
+  for (const [text, rule] of [
+    ['완벽한 날씨는 아니었습니다', 'overclaim-phrase'],
+    ['최고의 선택은 아니었어요', 'overclaim-phrase'],
+    ['수익형 블로그와는 무관합니다', 'no-ad-encouragement'],
+    ['부인할 수 없는 맛이었다', 'spouse-wording'],
+  ]) {
+    assert.equal(warned(text, rule), false, `오탐: [${rule}] ${text}`);
+  }
+});
+
+test('link-target-rel — 프로토콜 상대 URL도 외부 링크다', () => {
+  const warned = (href) => lintDraftHtml(`<p><a href="${href}">링크</a></p>`, {}).warnings
+    .some((w) => w.rule === 'link-target-rel');
+  for (const href of ['//example.com', 'https://example.com', 'HTTPS://EXAMPLE.COM']) {
+    assert.equal(warned(href), true, `외부 링크를 놓침: ${href}`);
+  }
+  for (const href of ['#a', '/rel', 'mailto:a@b.c']) {
+    assert.equal(warned(href), false, `내부 링크에 경고: ${href}`);
+  }
+});
