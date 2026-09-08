@@ -857,3 +857,118 @@ test('upload-images: --allow-replace가 CLI에서 실제로 통한다', (t) => {
   const claudeMd = fs.readFileSync(path.join(ROOT, 'CLAUDE.md'), 'utf8');
   assert.match(claudeMd, /--allow-replace/, 'CLAUDE.md에 없음');
 });
+
+test('모든 스크립트: usage가 선언한 플래그를 파서가 받는다', (t) => {
+  // `--allow-replace`가 코드·README·**런타임 오류 메시지**에 있는데 파서에는 없어서
+  // "unknown option"으로 죽었다 — 오류 메시지가 안내하는 조치를 따르면 다시 실패하는
+  // 막다른 길이었다. 그때는 upload-images 하나만 개별로 고정했는데, 같은 종류가
+  // 다른 스크립트에도 있는지 손으로 훑어야 했다. 그 훑기를 여기에 고정한다.
+  //
+  // usage에서 플래그를 뽑는 방식이 두 가지인 이유:
+  //   (a) Options 절의 줄머리(`  --flag  설명`)
+  //   (b) synopsis의 대괄호(`[--flag]`) — naver 스크립트들이 이 형태다
+  // 설명 산문에 나오는 **다른 스크립트의** 플래그(`lint-draft --upload-result`)는
+  // 둘 다에 안 걸리므로 오탐이 나지 않는다.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-flags-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const meta = path.join(dir, 'm.json');
+  fs.writeFileSync(meta, JSON.stringify({ primary_date: '2026-05-10', photos: [] }), 'utf8');
+  const upres = path.join(dir, 'u.json');
+  fs.writeFileSync(upres, JSON.stringify({ images: [] }), 'utf8');
+  const html = path.join(FIXTURES, 'draft-toscano.html');
+
+  // 그 플래그만 빼면 인자 검증을 통과하는 최소 인자. 목적은 실행 성공이 아니라
+  // "unknown option"이 나오는지 하나뿐이다.
+  const BASE = {
+    'extract-exif.js': ['x.jpg'],
+    'analyze-photos.js': ['x.jpg'],
+    'upload-images.js': ['/nonexistent.jpg', '--slug', 'abc-def', '--date', '2026-05-10'],
+    'lint-draft.js': [html],
+    'create-draft.js': ['--title', 'T', '--content', '<p>x</p>'],
+    'update-post.js': ['--post-id', '1', '--title', 'T'],
+    'publish-post.js': ['--post-id', '1', '--slug', '2026-05-10'],
+    'delete-post.js': ['--post-id', '1'],
+    'naver-create-draft.js': ['--html', html, '--title', 'T', '--dry-run'],
+    'naver-publish-post.js': ['--draft-title', 'T'],
+    'naver-doctor.js': [],
+    'naver-inspect.js': [],
+  };
+  const VALUES = {
+    '--metadata': meta, '--date': '2026-05-10', '--slug': 'abc-def',
+    '--work-dir': path.join(dir, 'w'), '--max-size-kb': '150',
+    '--output': path.join(dir, 'o.json'), '--upload-result': upres,
+    '--format': 'json', '--title': 'T', '--content': '<p>x</p>', '--post-id': '1',
+    '--labels': 'a,b', '--slug-from-date': meta, '--html': html,
+    '--category': 'C', '--tags': 'a,b', '--visibility': 'private',
+    '--draft-title': 'T', '--image-dir': dir, '--dir': dir,
+  };
+  const REJECT = /unknown option|알 수 없는 (옵션|플래그)|인자를 받지 않습니다/;
+
+  const problems = [];
+  for (const [script, base] of Object.entries(BASE)) {
+    // usage를 끌어내는 방법이 스크립트마다 다르다 — 인자 없이 내는 쪽과
+    // 미지 플래그에만 내는 쪽이 섞여 있어 둘 다 시도한다.
+    const extract = (text) => [...new Set([
+      ...(text.match(/^\s{2,}--[a-z][a-z0-9-]+/gm) || []).map((l) => l.trim()),
+      ...(text.match(/\[--[a-z][a-z0-9-]+/g) || []).map((l) => l.slice(1)),
+    ])];
+    let declared = [];
+    for (const probe of [[], ['--zzz-bogus-flag']]) {
+      const u = run(script, probe);
+      declared = extract(`${u.stdout || ''}${u.stderr || ''}`);
+      if (declared.length) break;
+    }
+    assert.ok(declared.length > 0, `${script}: usage에서 플래그를 찾지 못함`);
+
+    for (const flag of declared) {
+      if (base.includes(flag)) continue;
+      const args = [...base, ...(flag in VALUES ? [flag, VALUES[flag]] : [flag])];
+      const r = run(script, args);
+      if (REJECT.test(`${r.stdout || ''}${r.stderr || ''}`)) {
+        problems.push(`${script} ${flag}`);
+      }
+    }
+  }
+  assert.deepEqual(problems, [],
+    `usage가 선언한 플래그를 파서가 거부함:\n  ${problems.join('\n  ')}`);
+});
+
+test('session-state: 서브커맨드별 선언 플래그를 전부 받는다', (t) => {
+  // session-state는 플래그를 Options 절이 아니라 서브커맨드 synopsis에 인라인으로
+  // 쓴다(`init --slug S [--primary-date D] ...`). 위 테스트의 추출 방식으로는
+  // 안 잡히므로 따로 고정한다.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-ss-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const meta = path.join(dir, 'm.json');
+  fs.writeFileSync(meta, JSON.stringify({ primary_date: '2026-05-10' }), 'utf8');
+  const html = path.join(FIXTURES, 'draft-toscano.html');
+
+  const usage = (() => { const r = run('session-state.js', []); return `${r.stdout}${r.stderr}`; })();
+  const VALUES = {
+    '--slug': 'flag-probe', '--dir': dir, '--primary-date': '2026-05-10',
+    '--metadata-path': meta, '--analysis-path': meta, '--upload-result-path': meta,
+    '--draft-path': html, '--post-id': '1', '--post-url': 'https://x/y.html',
+    '--complete': 'exif', '--field': 'slug', '--format': 'json',
+  };
+  const REJECT = /unknown option|알 수 없는 (옵션|플래그)/;
+
+  // 서브커맨드 블록별로 플래그를 뽑는다
+  const blocks = usage.split(/^ {2}(init|update|read|list)\s/m);
+  const subs = {};
+  for (let i = 1; i < blocks.length; i += 2) subs[blocks[i]] = blocks[i + 1].split('\n\n')[0];
+  assert.ok(Object.keys(subs).length === 4, `서브커맨드 블록을 찾지 못함: ${Object.keys(subs)}`);
+
+  run('session-state.js', ['init', '--slug', 'flag-probe', '--dir', dir]);
+  const problems = [];
+  for (const [sub, text] of Object.entries(subs)) {
+    const base = sub === 'list' ? ['list', '--dir', dir] : [sub, '--slug', 'flag-probe', '--dir', dir];
+    for (const flag of [...new Set(text.match(/--[a-z][a-z0-9-]+/g) || [])]) {
+      if (base.includes(flag)) continue;
+      const args = [...base, ...(flag in VALUES ? [flag, VALUES[flag]] : [flag])];
+      const r = run('session-state.js', args);
+      if (REJECT.test(`${r.stdout || ''}${r.stderr || ''}`)) problems.push(`${sub} ${flag}`);
+    }
+  }
+  assert.deepEqual(problems, [],
+    `session-state가 선언한 플래그를 거부함:\n  ${problems.join('\n  ')}`);
+});
