@@ -1,0 +1,22 @@
+# 개행은 저장소·작업 트리 모두 LF로 고정한다.
+#
+# 이 프로젝트는 모든 파일 쓰기에서 `\n`을 쓰고(스크립트가 만드는 tmp/*.json,
+# draft-*.html 포함), CI가 windows-latest를 돌린다. .gitattributes가 없으면
+# 줄바꿈이 각자의 `core.autocrlf` 설정에 달리게 되어, Windows에서 체크아웃한
+# 사람이 CRLF를 커밋하면 같은 파일이 사람마다 다른 바이트가 된다.
+#
+# 지금 lint는 CRLF 입력에서도 같은 결과를 낸다(파서가 \r\n을 정규화한다 —
+# 실측으로 실초안 6건의 bodyChars·error·warn이 전부 동일했고, 저장소 전체를
+# CRLF로 바꾼 사본에서 테스트 316건이 통과했다). 그러니 이건 고장을 고치는 게
+# 아니라 **그 상태를 유지하도록 못박는 것**이다.
+* text=auto eol=lf
+
+# 이미지·바이너리는 변환하지 않는다.
+*.webp binary
+*.jpg  binary
+*.jpeg binary
+*.png  binary
+*.heic binary
+*.ico  binary
+*.woff binary
+*.woff2 binary

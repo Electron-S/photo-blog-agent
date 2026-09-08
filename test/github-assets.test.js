@@ -460,3 +460,70 @@ test('교체 거부는 기본값이고, 부분 업로드 위험을 함께 안내
   assert.match(err, /같은 배치의 다른 사진은 이미 업로드/, '부분 업로드 위험을 안내하지 않음');
   assert.match(err, /remotePath/, '무엇이 올라갔는지 확인할 곳을 안내하지 않음');
 });
+
+// --- 25차 리뷰 회귀 ---
+
+test('--work-dir가 글 폴더 분리를 없애면 표면화한다', async (t) => {
+  // 기본 workDir은 `tmp/assets/{date}-{hash12}`이고, 그 세그먼트가 글마다 로컬
+  // 산출물을 분리하는 **유일한** 수단이다. `--work-dir`를 주면 그 경로를 그대로
+  // 쓰므로 분리가 사라진다 — 서로 다른 글을 같은 경로로 돌리면 photo-NN.webp가
+  // 조용히 덮어써지고, 먼저 만든 글의 upload-<slug>.json에 적힌 webpPath가
+  // **나중 글의 사진**을 가리킨다 (실측 재현). 네이버 발행은 그 경로의 파일을
+  // 그대로 에디터에 올리므로 다른 글의 사진이 올라간다.
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const pathMod = require('node:path');
+  const sharp = require('sharp');
+  const { postDirName } = require('../lib/asset-paths');
+
+  const dir = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'pba-wd-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const mk = async (name, tint) => {
+    const p = pathMod.join(dir, name);
+    await sharp({ create: { width: 400, height: 300, channels: 3,
+      background: { r: tint, g: 90, b: 160 } } }).jpeg().toFile(p);
+    return p;
+  };
+  const a = await mk('a.jpg', 30);
+  const b = await mk('b.jpg', 210);
+
+  const warns = [];
+  const origWarn = console.warn;
+  console.warn = (...args) => { warns.push(args.join(' ')); };
+  let r1;
+  let r2;
+  try {
+    const { uploadBlogImages } = require('../lib/github-assets');
+    const shared = pathMod.join(dir, 'shared');
+    r1 = await uploadBlogImages([a], {
+      date: '2026-05-10', slug: 'post-one', localOnly: true, workDir: shared,
+    });
+    r2 = await uploadBlogImages([b], {
+      date: '2026-05-10', slug: 'post-two', localOnly: true, workDir: shared,
+    });
+  } finally {
+    console.warn = origWarn;
+  }
+
+  // 전제: 실제로 덮어썼다 (같은 경로, 다른 내용)
+  assert.equal(r1.images[0].webpPath, r2.images[0].webpPath, '전제: 같은 경로를 쓴다');
+  assert.ok(warns.some((w) => /--work-dir가 글 폴더/.test(w)),
+    `분리가 사라졌는데 경고하지 않음:\n${warns.join('\n')}`);
+  assert.ok(warns.some((w) => /webpPath/.test(w)),
+    '기록된 경로가 어긋날 수 있다는 것을 안내하지 않음');
+
+  // 기본값(생략)에서는 조용해야 한다 — 그 경로는 postDir을 포함한다
+  const quiet = [];
+  console.warn = (...args) => { quiet.push(args.join(' ')); };
+  try {
+    const { uploadBlogImages } = require('../lib/github-assets');
+    await uploadBlogImages([a], {
+      date: '2026-05-10', slug: 'post-one', localOnly: true,
+      workDir: pathMod.join(dir, postDirName('2026-05-10', 'post-one')),
+    });
+  } finally {
+    console.warn = origWarn;
+  }
+  assert.deepEqual(quiet.filter((w) => /--work-dir가 글 폴더/.test(w)), [],
+    '글 폴더와 일치하는데 경고함');
+});

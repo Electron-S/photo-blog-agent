@@ -17,7 +17,9 @@ function printUsage() {
   console.log('  --metadata      extract-exif.js 출력 JSON 경로. primary_date를 게시일로 사용');
   console.log('  --date          게시일 (--metadata의 primary_date보다 우선; 둘 다 없거나 null이면 exit 5)');
   console.log('  --slug          URL 슬러그 (필수). 영문/숫자/하이픈. 폴더 경로의 유일한 식별자다');
-  console.log('  --work-dir      압축 이미지 임시 디렉토리 (기본값: ./tmp/assets/<date>-<hash>)');
+  console.log('  --work-dir      압축 이미지 임시 디렉토리 (기본값: ./tmp/assets/<date>-<hash>).');
+  console.log('                  기본값의 <date>-<hash>가 글마다 산출물을 분리하므로, 직접 지정하면');
+  console.log('                  다른 글과 photo-NN.webp가 충돌할 수 있습니다 (경고가 출력됩니다).');
   console.log(`  --max-size-kb   AdSense 이미지 크기 기준 KB (기본값: ${DEFAULT_MAX_SIZE_KB})`);
   console.log('  --output        결과 JSON 저장 경로 (예: tmp/upload-<slug>.json). lint-draft --upload-result에 사용');
   console.log('  --local-only    GitHub 업로드/검증 생략, 압축까지만 (네이버 발행 경로)');
