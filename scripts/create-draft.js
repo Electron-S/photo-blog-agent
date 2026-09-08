@@ -53,7 +53,28 @@ async function main() {
     }
   }
 
-  const labels = labelsArg ? labelsArg.split(',').map(l => l.trim()).filter(Boolean) : [];
+  // **빈 라벨을 조용히 통과시키지 않는다.** `update-post.js`와 정확히 같은 함정이다 —
+  // `if (labelsArg)`는 "플래그가 왔는가"만 보는데 `filter(Boolean)`이 빈 배열을 낼 수
+  // 있다 (실측: `--labels ","`·`--labels " "` -> 라벨 0개로 초안 생성, exit 0, 경고 0건).
+  //
+  // 그리고 **SEO 라벨이 실제로 정해지는 곳은 여기다** — `prompts/workflow-steps.md`의
+  // Step 6은 `--labels`를 생략해 기존 라벨을 보존하므로, 라벨 5~10개(같은 파일 161행)를
+  // 넘기는 유일한 지점이 create-draft다. 여기서 조용히 0개가 되면 그 글은 라벨 없이
+  // 발행되고, 나중에 어느 단계에서 사라졌는지 추적할 방법이 없다.
+  let labels = [];
+  if (labelsArg) {
+    labels = labelsArg.split(',').map((l) => l.trim()).filter(Boolean);
+    if (labels.length === 0) {
+      console.error(`Error: --labels에 유효한 라벨이 없습니다 (받음: ${JSON.stringify(labelsArg)}).`);
+      console.error('  라벨 없이 초안을 만들려면 --labels를 아예 생략하세요.');
+      process.exit(1);
+    }
+  } else {
+    // 차단하지는 않는다 (빠른 초안 확인용 호출이 있다). 다만 워크플로우가 요구하는
+    // 라벨이 비었다는 사실은 표면화한다.
+    console.error('[create-draft] --labels 미지정 — 라벨 없이 초안을 만듭니다 '
+      + '(prompts/workflow-steps.md는 SEO 라벨 5~10개를 요구합니다).');
+  }
 
   // lint를 URL 검증보다 먼저 돌린다. lint는 오프라인 수 ms지만 verifyImageUrls는
   // 이미지당 HTTP HEAD(최대 10초)라, 규칙 위반이면 네트워크를 쓰기 전에 죽는 게 맞다.
@@ -96,8 +117,13 @@ async function main() {
   const imageCheck = await verifyImageUrls(content);
   if (!imageCheck.ok) {
     console.error('Broken image URLs found:');
-    for (const { url, status } of imageCheck.broken) {
-      console.error(`  ${status}: ${url}`);
+    // **reason을 버리지 않는다.** status만 찍으면 오프라인·DNS 실패·TLS 오류·타임아웃·
+    // 연결 거부가 전부 `  0: https://...` 한 줄로 붕괴해, 사용자가 "GitHub Pages 전파
+    // 지연"인지 "내 인터넷이 끊겼는지"를 구별할 수 없다 (그 상태로 exit 1이라 발행이 막힌다).
+    for (const { url, status, reason, attempts } of imageCheck.broken) {
+      const detail = reason ? ` (${reason})` : '';
+      const tries = attempts > 1 ? ` [${attempts}회 시도]` : '';
+      console.error(`  ${status || 'ERR'}${tries}: ${url}${detail}`);
     }
     process.exit(1);
   }

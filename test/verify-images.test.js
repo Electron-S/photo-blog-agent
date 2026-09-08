@@ -143,3 +143,47 @@ test('verifyImageUrls — 2xx를 정상으로 보고 일시 실패는 재시도�
   assert.equal(notFound, 1, '404를 재시도함 (시간 낭비)');
   assert.equal(gone.broken[0].status, 404);
 });
+
+// --- 20차 리뷰 회귀 ---
+
+test('verifyImageUrls — attempts가 설정값이 아니라 실제 시도 횟수다', async (t) => {
+  // `attempts: Math.max(1, retries)`는 **설정값**이라, 404처럼 한 번만 요청하고
+  // 포기한 경우에도 "3회 시도"로 보고했다 (실측: 서버 hit 1회 / attempts 3).
+  // 재시도했는데도 404인 것과 재시도 대상이 아닌 것은 다른 진단이다.
+  const http = require('node:http');
+  const { verifyImageUrls } = require('../lib/verify-images');
+
+  const serve = async (status) => {
+    let hits = 0;
+    const srv = http.createServer((req, res) => { hits += 1; res.writeHead(status); res.end(); });
+    await new Promise((resolve) => srv.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${srv.address().port}/a.webp`;
+    const r = await verifyImageUrls(`<img src="${url}">`, { retries: 2 });
+    srv.close();
+    return { hits, broken: r.broken[0] };
+  };
+
+  // 404는 재시도 대상이 아니다 — 요청도 1회, 보고도 1회여야 한다
+  const gone = await serve(404);
+  assert.equal(gone.hits, 1, '404를 재시도함');
+  assert.equal(gone.broken.attempts, 1, `attempts=${gone.broken.attempts} (실제 요청 ${gone.hits}회)`);
+  assert.equal(gone.broken.status, 404);
+
+  // 503은 소진까지 재시도한다 — 요청 횟수와 보고가 일치해야 한다
+  const flaky = await serve(503);
+  assert.equal(flaky.hits, 2);
+  assert.equal(flaky.broken.attempts, flaky.hits,
+    `attempts=${flaky.broken.attempts} != 실제 요청 ${flaky.hits}회`);
+});
+
+test('verifyImageUrls — 네트워크 실패 이유를 버리지 않는다', async () => {
+  // status만 남기면 오프라인·DNS 실패·TLS 오류·타임아웃·연결 거부가 전부 status 0
+  // 한 값으로 붕괴해, 사용자가 "GitHub Pages 전파 지연"인지 "내 인터넷이 끊겼는지"를
+  // 구별할 수 없다 (그 상태로 create-draft/update-post가 exit 1이라 발행이 막힌다).
+  const { verifyImageUrls } = require('../lib/verify-images');
+  const r = await verifyImageUrls('<img src="http://127.0.0.1:1/x.webp">', { retries: 1 });
+  assert.equal(r.ok, false);
+  assert.equal(r.broken[0].status, 0);
+  assert.match(r.broken[0].reason, /ECONNREFUSED/,
+    `reason이 비었거나 이유를 담지 않음: ${JSON.stringify(r.broken[0].reason)}`);
+});

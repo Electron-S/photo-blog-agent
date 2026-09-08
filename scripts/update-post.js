@@ -65,6 +65,9 @@ async function main() {
     if (labels.length === 0) {
       console.error(`Error: --labels에 유효한 라벨이 없습니다 (받음: ${JSON.stringify(labelsArg)}).`);
       console.error('  라벨을 **보존**하려면 --labels를 아예 생략하세요 (PATCH에 labels를 넣지 않습니다).');
+      // 라벨을 **비우는** 방법이 없다는 것을 명시한다. 안 적어 두면 사용자가
+      // `--labels ""`, `--labels " "`, `--labels ","`를 번갈아 시도하게 된다.
+      console.error('  라벨을 전량 비우는 것은 지원하지 않습니다 — Blogger 편집기에서 직접 지우세요.');
       process.exit(1);
     }
     updateData.labels = labels;
@@ -118,8 +121,11 @@ async function main() {
     const imageCheck = await verifyImageUrls(content);
     if (!imageCheck.ok) {
       console.error('Broken image URLs found:');
-      for (const { url, status } of imageCheck.broken) {
-        console.error(`  ${status}: ${url}`);
+      // reason을 버리지 않는다 — 이유는 scripts/create-draft.js의 같은 지점 주석 참조.
+      for (const { url, status, reason, attempts } of imageCheck.broken) {
+        const detail = reason ? ` (${reason})` : '';
+        const tries = attempts > 1 ? ` [${attempts}회 시도]` : '';
+        console.error(`  ${status || 'ERR'}${tries}: ${url}${detail}`);
       }
       process.exit(1);
     }

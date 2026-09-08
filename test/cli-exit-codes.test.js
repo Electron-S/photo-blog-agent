@@ -9,7 +9,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 const ROOT = path.join(__dirname, '..');
 const FIXTURES = path.join(__dirname, 'fixtures', 'drafts');
@@ -542,4 +542,126 @@ test('session-state: primary_date를 무검증으로 저장하지 않는다', (t
   // 정상 값은 통과한다
   assert.equal(run('session-state.js',
     ['init', '--slug', 'pd', '--dir', dir, '--primary-date', '2026-05-10']).status, 0);
+});
+
+// --- 20차 리뷰 회귀 ---
+
+test('create-draft: --labels가 조용히 라벨 0개로 초안을 만들지 않는다', () => {
+  // update-post.js에서 exit 1로 막은 것과 **완전히 같은 패턴**이 주 진입점에 남아
+  // 있었다 (실측: `--labels ","` -> 라벨 0개로 초안 생성, exit 0, 경고 0건).
+  //
+  // 그리고 **SEO 라벨이 실제로 정해지는 곳이 create-draft다** —
+  // prompts/workflow-steps.md의 Step 6은 `--labels`를 생략해 기존 라벨을 보존하므로,
+  // 라벨 5~10개(같은 파일 161행)를 넘기는 유일한 지점이 여기다.
+  for (const bad of [',', ' ', ',,', ' , ']) {
+    const r = run('create-draft.js', ['--title', 't', '--content', '<p>x</p>', '--labels', bad]);
+    assert.equal(r.status, 1, `--labels ${JSON.stringify(bad)} status=${r.status}`);
+    assert.match(r.stderr, /유효한 라벨이 없습니다/);
+    assert.match(r.stderr, /생략하세요/);
+  }
+});
+
+test('create-draft: --labels 생략은 차단하지 않되 표면화한다', () => {
+  // 차단하면 빠른 초안 확인용 호출이 막힌다. 다만 워크플로우가 요구하는 라벨이
+  // 비었다는 사실은 알려야 한다 — lint가 먼저 죽는 초안이어도 이 경고는 그 전에 나온다.
+  const r = run('create-draft.js', ['--title', 't', '--content', '<p>x</p>']);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /--labels 미지정/);
+  assert.match(r.stderr, /5~10개/, '워크플로우 요구 수치를 안내하지 않음');
+});
+
+test('get-blogger-token: 포트가 올바르지 않으면 raw 스택 없이 안내한다', () => {
+  // 예전에는 `Number('abc')`가 NaN이 되어도 REDIRECT_URI를 만들어 authUrl에 실었고,
+  // 실패는 한참 뒤 server.listen의 ERR_SOCKET_BAD_PORT raw 스택으로 나왔다.
+  for (const bad of ['abc', '0', '70000', '-1', '3000.5']) {
+    const r = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'get-blogger-token.js')], {
+      encoding: 'utf8',
+      cwd: ROOT,
+      env: {
+        ...process.env,
+        BLOGGER_OAUTH_PORT: bad,
+        BLOGGER_CLIENT_ID: 'x',
+        BLOGGER_CLIENT_SECRET: 'y',
+      },
+    });
+    assert.equal(r.status, 1, `PORT=${bad} status=${r.status}`);
+    assert.match(r.stderr, /BLOGGER_OAUTH_PORT/, `PORT=${bad}: 환경변수를 안내하지 않음`);
+    assert.doesNotMatch(r.stderr, /ERR_SOCKET_BAD_PORT|at Server\.listen/,
+      `PORT=${bad}: raw 스택이 노출됨`);
+  }
+});
+
+test('get-blogger-token: 포트가 점유돼 있으면 대안을 안내한다', async (t) => {
+  // 3000은 개발 기본 포트라 EADDRINUSE는 첫 실행 실패로 매우 흔한데, 예전에는
+  // Unhandled 'error' event 스택만 나오고 BLOGGER_OAUTH_PORT의 존재조차 알려주지 않았다.
+  const http = require('node:http');
+  const srv = http.createServer(() => {});
+  await new Promise((resolve) => srv.listen(0, '127.0.0.1', resolve));
+  const port = srv.address().port;
+  t.after(() => srv.close());
+
+  const r = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'get-blogger-token.js')], {
+    encoding: 'utf8',
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      BLOGGER_OAUTH_PORT: String(port),
+      BLOGGER_CLIENT_ID: 'x',
+      BLOGGER_CLIENT_SECRET: 'y',
+    },
+  });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stderr, /이미 사용 중/);
+  assert.match(r.stderr, /BLOGGER_OAUTH_PORT=/, '대안 포트 지정 방법을 안내하지 않음');
+  assert.doesNotMatch(r.stderr, /Unhandled 'error' event/, 'raw 스택이 노출됨');
+});
+
+test('create-draft/update-post: 깨진 이미지의 실패 이유를 버리지 않는다', async (t) => {
+  // 예전에는 `for (const { url, status } of imageCheck.broken)`가 reason을
+  // 구조분해에서 빼먹어, 오프라인·DNS 실패·TLS 오류·타임아웃·연결 거부가 전부
+  // `  0: https://...` 한 줄로 붕괴했다. 사용자는 "GitHub Pages 전파 지연"인지
+  // "내 인터넷이 끊겼는지"를 구별할 수 없는데 exit 1이라 발행은 막힌 상태다.
+  //
+  // 404를 쓰는 이유: 재시도 대상이 아니라 대기 없이 같은 출력 경로를 지난다.
+  const http = require('node:http');
+  const srv = http.createServer((req, res) => { res.writeHead(404); res.end(); });
+  await new Promise((resolve) => srv.listen(0, '127.0.0.1', resolve));
+  const port = srv.address().port;
+  t.after(() => srv.close());
+
+  const src = fs.readFileSync(path.join(FIXTURES, 'draft-toscano.html'), 'utf8');
+  const dead = src.replace(/https:\/\/[^"]*?\/(photo-\d+\.webp)/g, `http://127.0.0.1:${port}/$1`);
+  assert.match(dead, /127\.0\.0\.1/, '전제: fixture의 이미지 URL을 치환했다');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-brk-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'dead.html');
+  fs.writeFileSync(file, dead, 'utf8');
+
+  // **spawnSync를 쓸 수 없다.** 검증 서버가 이 테스트 프로세스 안에 있는데
+  // spawnSync는 이벤트 루프를 막아 서버가 응답하지 못한다 — 실제로 404 대신
+  // "timeout of 10000ms exceeded"가 나왔다 (테스트를 실행해 확인). 비동기로 띄운다.
+  const runAsync = (script, args) => new Promise((resolve) => {
+    const child = spawn(process.execPath, [path.join(ROOT, 'scripts', script), ...args], {
+      cwd: ROOT,
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => { stdout += d; });
+    child.stderr.on('data', (d) => { stderr += d; });
+    child.on('close', (status) => resolve({ status, stdout, stderr }));
+  });
+
+  for (const [script, args] of [
+    ['create-draft.js', ['--title', 't', '--content', file, '--labels', 'a,b']],
+    ['update-post.js', ['--post-id', '1', '--content', file]],
+  ]) {
+    const r = await runAsync(script, args);
+    assert.equal(r.status, 1, `${script} status=${r.status}\n${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, /Broken image URLs found/, script);
+    // 이유가 실제로 찍혀야 한다 — status 하나로 붕괴하면 안 된다
+    assert.match(r.stderr, /status code 404/, `${script}: 실패 이유가 출력되지 않음`);
+    // Blogger API에 도달하기 전에 죽는다 (자격증명 없이도 이 테스트가 성립하는 근거)
+    assert.doesNotMatch(r.stderr, /refresh token|invalid_grant/i, `${script}: API를 호출함`);
+  }
 });
