@@ -703,3 +703,90 @@ test('upload-images: --metadata의 primary_date를 무검증으로 쓰지 않는
   assert.match(old.stderr, /Warning/);
   assert.match(old.stderr, /날짜=1899-11-30/, '타당 범위 밖 날짜를 차단함 (경고여야 한다)');
 });
+
+// --- 23차 리뷰 회귀 ---
+
+test('CLI는 비정상 입력에 raw 스택을 노출하지 않는다', (t) => {
+  // 스택트레이스로 죽는 것은 이 프로젝트의 명시적 안티패턴이다 — 사용자는 무엇을
+  // 해야 할지 알 수 없고, 자동화는 exit 1을 "일반 실패"로 뭉뚱그린다.
+  //
+  // publish-post의 --slug-from-date가 그랬다. 주석은 "깨진 파일 라인을 디버그할 수
+  // 있게" 스택을 남긴다고 했지만, 실제로 찍히는 것은 `JSON.parse (<anonymous>)` →
+  // `lib/slug.js` → `publish-post.js`로 **우리 소스**였다. 깨진 파일의 위치는 이미
+  // 메시지에 있고("at position 2"), 스택은 조치할 줄을 6줄 아래로 밀어냈다.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-stk-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const badJson = path.join(dir, 'bad.json');
+  fs.writeFileSync(badJson, '{ this is not json', 'utf8');
+  const emptyHtml = path.join(dir, 'empty.html');
+  fs.writeFileSync(emptyHtml, '', 'utf8');
+  const binHtml = path.join(dir, 'bin.html');
+  fs.writeFileSync(binHtml, Buffer.from(Array.from({ length: 256 }, (_, i) => i)));
+
+  // 스택이 새어 나왔다는 신호
+  const STACK = [/^\s{4}at /m, /throw er;/, /Unhandled 'error' event/, /node:internal\//];
+
+  const CASES = [
+    ['lint-draft.js', []],
+    ['lint-draft.js', ['/nonexistent.html']],
+    ['lint-draft.js', [emptyHtml]],
+    ['lint-draft.js', [binHtml]],
+    ['lint-draft.js', [path.join(FIXTURES, 'draft-toscano.html'), '--upload-result', badJson]],
+    ['lint-draft.js', [path.join(FIXTURES, 'draft-toscano.html'), '--format', 'yaml']],
+    ['extract-exif.js', []],
+    ['extract-exif.js', ['/nonexistent.jpg']],
+    ['extract-exif.js', ['--output']],
+    ['analyze-photos.js', []],
+    ['upload-images.js', []],
+    ['upload-images.js', ['/nonexistent.jpg', '--slug', 'x', '--metadata', badJson]],
+    ['upload-images.js', ['/nonexistent.jpg', '--slug', 'x', '--date', 'abc']],
+    ['upload-images.js', ['/nonexistent.jpg', '--slug', 'x', '--date', '2026-05-10', '--max-size-kb', 'abc']],
+    ['session-state.js', []],
+    ['session-state.js', ['bogus']],
+    ['session-state.js', ['read', '--slug', 'nope', '--dir', dir]],
+    ['session-state.js', ['read', '--slug', '../etc', '--dir', dir]],
+    ['naver-create-draft.js', []],
+    ['naver-create-draft.js', ['--html', '/nonexistent.html', '--title', 'T', '--dry-run']],
+    ['naver-create-draft.js', ['--html', binHtml, '--title', 'T', '--dry-run']],
+    ['publish-post.js', []],
+    ['publish-post.js', ['--post-id', '1']],
+    ['publish-post.js', ['--post-id', '1', '--slug', 'A_B']],
+    ['publish-post.js', ['--post-id', '1', '--slug-from-date', badJson]],
+    ['publish-post.js', ['--post-id', '1', '--slug-from-date', '/nonexistent.json']],
+    ['delete-post.js', []],
+    ['create-draft.js', []],
+    ['create-draft.js', ['--title', 'T', '--content', '/nonexistent.html', '--labels', 'a']],
+    ['update-post.js', []],
+  ];
+
+  const leaked = [];
+  for (const [script, args] of CASES) {
+    const r = run(script, args);
+    const out = `${r.stdout || ''}${r.stderr || ''}`;
+    const hit = STACK.find((re) => re.test(out));
+    if (hit) leaked.push(`${script} ${args.join(' ')} → ${hit}`);
+  }
+  assert.deepEqual(leaked, [], `스택이 노출된 호출:\n  ${leaked.join('\n  ')}`);
+});
+
+test('publish-post: --slug-from-date 실패는 원인별 조치를 안내한다', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-sfd-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const badJson = path.join(dir, 'bad.json');
+  fs.writeFileSync(badJson, '{ this is not json', 'utf8');
+
+  const missing = run('publish-post.js', ['--post-id', '1', '--slug-from-date', '/nonexistent.json']);
+  assert.equal(missing.status, 1);
+  assert.match(missing.stderr, /파일이 없습니다/);
+  assert.match(missing.stderr, /extract-exif/, '어떻게 만드는지 안내하지 않음');
+
+  const broken = run('publish-post.js', ['--post-id', '1', '--slug-from-date', badJson]);
+  assert.equal(broken.status, 1);
+  assert.match(broken.stderr, /extract-exif\.js의 출력 형식/);
+  assert.doesNotMatch(broken.stderr, /파일이 없습니다/, 'ENOENT가 아닌데 파일 없음으로 안내');
+
+  // 두 경우 모두 대안을 제시한다
+  for (const r of [missing, broken]) {
+    assert.match(r.stderr, /--slug YYYY-MM-DD/, '대안(--slug 직접 지정)을 안내하지 않음');
+  }
+});

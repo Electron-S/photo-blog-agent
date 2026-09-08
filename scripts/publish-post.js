@@ -2,7 +2,7 @@ require('dotenv').config();
 
 const { getPost, publishPost, updatePost } = require('../lib/blogger');
 const { getArg, validateKnownFlags } = require('../lib/cli-args');
-const { errFull, errStack, reportFatal } = require('../lib/err-text');
+const { errCode, errFull, reportFatal } = require('../lib/err-text');
 const {
   extractSlugFromUrl,
   loadSlugFromMetadata,
@@ -205,9 +205,23 @@ async function main() {
       slug = loadSlugFromMetadata(slugFromDate);
     } catch (err) {
       // metadata 로드 실패는 publish 단계 실패와 구분되어야 사용자가 올바른 후속 조치를 한다.
-      // JSON parse/readFile 에러의 위치 정보(stack)를 보존해 깨진 파일 라인을 디버그할 수 있게 한다.
+      //
+      // **스택은 찍지 않는다.** 예전 주석은 "JSON parse/readFile 에러의 위치 정보(stack)를
+      // 보존해 깨진 파일 라인을 디버그할 수 있게 한다"고 했지만, 실제로 찍히는 스택은
+      // `JSON.parse (<anonymous>)` → `lib/slug.js:122` → `publish-post.js:205`로
+      // **우리 소스**를 가리킨다. 깨진 파일의 위치("at position 2")는 이미 윗줄
+      // 메시지에 있다. 6줄짜리 스택은 정보를 더하지 않으면서 조치할 줄을 묻고,
+      // 사용자에게 "도구가 고장났다"고 읽힌다 — create-draft/update-post가
+      // quietStackFor로 억제하는 것과 같은 종류의 실패다 (사용자 입력 문제).
       console.error(`Error: --slug-from-date 로드 실패 — ${errFull(err)}`);
-      if (errStack(err)) console.error(errStack(err));
+      if (errCode(err) === 'ENOENT') {
+        console.error(`  + 파일이 없습니다: ${slugFromDate}`);
+        console.error('  + extract-exif.js를 --output과 함께 실행했는지, 경로가 맞는지 확인하세요.');
+      } else {
+        console.error(`  + ${slugFromDate}가 extract-exif.js의 출력 형식인지 확인하세요`);
+        console.error('    (최상위에 primary_date를 가진 JSON 객체여야 합니다).');
+      }
+      console.error('  + 또는 --slug YYYY-MM-DD로 직접 지정하세요.');
       process.exit(1);
     }
     }
