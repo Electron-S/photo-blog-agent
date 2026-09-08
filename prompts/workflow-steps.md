@@ -29,6 +29,13 @@ width/height 확인, session-state 스키마, exit 코드 안내 등 5곳이 서
 node /home/cyyoo/develop/photo-blog-agent/scripts/extract-exif.js <사진들> --output /home/cyyoo/develop/photo-blog-agent/tmp/metadata-<촬영날짜>.json
 ```
 
+**`<촬영날짜>`는 이 명령의 *출력*이라 실행 전에는 알 수 없습니다.** 임의 이름으로
+쓰지 말고 이렇게 하세요 — 먼저 `--output` 없이 실행해 `primary_date`를 읽고, 그
+값으로 파일명을 정해 다시 실행합니다 (EXIF 읽기는 멱등이라 두 번 돌려도 안전합니다).
+`primary_date`가 null이면 `metadata-unknown-date.json`을 쓰고 사용자에게 방문 날짜를
+묻습니다. **정한 경로는 Step 3에서 session-state의 `--metadata-path`로 넘겨 두세요**
+— 이후 단계는 그 값을 읽어 쓰므로 이름을 다시 유도할 필요가 없습니다.
+
 - 출력 JSON을 Read해서 `primary_date`, `primary_date_source_count`, `gps_center`, `date_range`를 확인합니다.
 - **`primary_date`가 null**이면 사용자에게 "사진 EXIF에 날짜가 없어요. 언제쯤 다녀오신 거예요? (예: 2026-05-09)" 질문 후 답을 받아 `--date`로 명시할 준비를 합니다.
 - **`primary_date_source_count / 전체 사진수 < 0.5`**면 신뢰도 낮음 — 사용자에게 "사진 절반 정도만 같은 날짜 EXIF가 있어요. 방문일이 ○월 ○일 맞나요?" 확인합니다.
@@ -79,6 +86,11 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/session-state.js read \
   **중복 발행**이 될 수 있습니다 (CLAUDE.md "URL 슬러그 — 절대 규칙"의 사고 경로).
   출력된 경고와 JSON의 `degraded: true`를 사용자에게 보여주고, 무엇이 실제로
   끝났는지 확인한 뒤 `update --complete`(필요하면 `--post-id`)로 고치고 다시 시도합니다.
+- **단, exit 9에는 원인이 둘이고 조치가 다릅니다.** stderr가
+  `session-state가 없습니다`이면 **손상이 아니라 파일이 없는 것**입니다 —
+  `--dir`·`--slug` 오타를 먼저 확인하세요 (이때는 `degraded: true`도 JSON도 나오지
+  않고, 위에 적은 복구 절차인 `update --complete`도 같은 exit 9로 끝납니다).
+  손상은 `degraded: true`가 나오는 쪽입니다. 파일이 정말 없으면 처음부터 진행합니다.
 - exit 0이면 `steps_remaining[0]`에 해당하는 Step으로 점프합니다:
   `exif`→Step 1, `photo_analysis`→Step 2.5, `upload`→Step 3, `research`→Step 4,
   `draft`→Step 5, `publish`→Step 7.
@@ -90,8 +102,8 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/session-state.js read \
 ```bash
 node /home/cyyoo/develop/photo-blog-agent/scripts/upload-images.js <사진들> \
   --metadata /home/cyyoo/develop/photo-blog-agent/tmp/metadata-<촬영날짜>.json \
-  --slug <영문-슬러그> \
-  --output /home/cyyoo/develop/photo-blog-agent/tmp/upload-<슬러그>.json
+  --slug <slug> \
+  --output /home/cyyoo/develop/photo-blog-agent/tmp/upload-<slug>.json
 ```
 
 - slug는 **소문자** 영문/숫자/하이픈만이고 하이픈으로 시작할 수 없습니다. 장소·테마를 짧게
@@ -139,7 +151,7 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/session-state.js update \
 - 식당/카페는 대표 메뉴와 가격대, 그 외 장소는 운영시간·주차·이벤트.
 - 장소가 모호하면 "여기 ○○ 맞나요?" 사용자에게 확인. 단정해서 쓰지 않습니다.
 - 출처 없는 가격/시간은 **"확인 필요"**로 표기하거나 본문에서 빼고 `fact_check_notes`에 남깁니다.
-- `tmp/photo-analysis-<촬영날짜>.json`을 Read해서 사진 속 간판·메뉴판 텍스트를 장소 식별의 단서로 활용합니다 (Step 2.5에서 비전 모델이 이미 채워둔 경우).
+- `/home/cyyoo/develop/photo-blog-agent/tmp/photo-analysis-<촬영날짜>.json`(session-state의 `analysis_path`)을 Read해서 사진 속 간판·메뉴판 텍스트를 장소 식별의 단서로 활용합니다 (Step 2.5에서 비전 모델이 이미 채워둔 경우).
 
 ### Step 5 — 초안 작성
 
@@ -162,7 +174,7 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/session-state.js update \
 
 작성 절차:
 
-1. `tmp/photo-analysis-<촬영날짜>.json`을 Read해서 채워진 `scene_description`·`text_visible`·`notable_objects`를 본문 묘사에 활용합니다 (`analyzed_by_model_capability`가 `"text-only"`면 EXIF·캡션만으로 진행).
+1. `/home/cyyoo/develop/photo-blog-agent/tmp/photo-analysis-<촬영날짜>.json`(session-state의 `analysis_path`)을 Read해서 채워진 `scene_description`·`text_visible`·`notable_objects`를 본문 묘사에 활용합니다 (`analyzed_by_model_capability`가 `"text-only"`면 EXIF·캡션만으로 진행).
 2. HTML 본문을 `/home/cyyoo/develop/photo-blog-agent/tmp/draft-<slug>.html`로 Write.
 3. **초안을 lint로 자가 검증합니다** (Blogger에 올리기 전에 오프라인으로 끝냅니다):
    ```bash
@@ -171,7 +183,7 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/session-state.js update \
      --upload-result /home/cyyoo/develop/photo-blog-agent/tmp/upload-<slug>.json \
      --format json
    ```
-   - exit 8이면 `errors[]`를 전부 읽고 `tmp/draft-<slug>.html`을 Edit으로 고친 뒤 **통과할 때까지 반복**합니다.
+   - exit 8이면 `errors[]`를 전부 읽고 `/home/cyyoo/develop/photo-blog-agent/tmp/draft-<slug>.html`을 Edit으로 고친 뒤 **통과할 때까지 반복**합니다.
    - `warnings[]`는 차단하지 않지만, 문체 관련 지적이므로 가능하면 함께 고칩니다.
    - `stats.bodyChars`가 1,800 미만이면 내용을 늘립니다. **캡션을 늘려서 채우지 마세요** — 글자수는 figcaption·alt를 제외하고 셉니다.
    - `img-dimensions-match`가 뜨면 업로드 결과 JSON의 `width`/`height`를 그대로 옮겨 적습니다.
@@ -199,7 +211,7 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/session-state.js update \
 
 사용자가 자연어로 수정을 요청하면:
 
-1. `tmp/draft-<slug>.html`을 Edit으로 수정 (전체 재생성 X — 차이만).
+1. `/home/cyyoo/develop/photo-blog-agent/tmp/draft-<slug>.html`을 Edit으로 수정 (전체 재생성 X — 차이만).
 2. 같은 post-id로 업데이트:
    ```bash
    node /home/cyyoo/develop/photo-blog-agent/scripts/update-post.js \
@@ -221,8 +233,11 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/session-state.js update \
 ```bash
 node /home/cyyoo/develop/photo-blog-agent/scripts/publish-post.js \
   --post-id <ID> \
-  --slug-from-date /home/cyyoo/develop/photo-blog-agent/tmp/metadata-<촬영날짜>.json
+  --slug-from-date <session-state의 metadata_path>
 ```
+
+`metadata_path`는 `session-state.js read --slug <slug> --dir <절대경로> --field metadata_path`로
+꺼냅니다. 이름을 촬영 날짜로 다시 유도하지 마세요 — 틀리면 발행 직전에 exit 1로 멈춥니다.
 
 - `primary_date`가 null이면 위 명령이 실패합니다. 사용자에게 받은 날짜로 `--slug YYYY-MM-DD`로 직접 명시합니다.
 - **session-state 마무리**:

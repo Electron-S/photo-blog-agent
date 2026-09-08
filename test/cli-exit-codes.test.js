@@ -790,3 +790,70 @@ test('publish-post: --slug-from-date 실패는 원인별 조치를 안내한다'
     assert.match(r.stderr, /--slug YYYY-MM-DD/, '대안(--slug 직접 지정)을 안내하지 않음');
   }
 });
+
+test('선언된 CLI 플래그는 전부 파서가 받는다', () => {
+  // `--allow-replace`가 코드·README·**런타임 오류 메시지**에 있는데 파서의
+  // BOOLEAN_FLAGS에는 없어서 `unknown option`으로 exit 1이 났다. 즉 오류 메시지가
+  // 안내하는 조치를 그대로 따르면 다시 실패하는 막다른 길이었다.
+  // (306건이 통과한 이유: 테스트가 uploadAsset을 **lib 레벨로만** 불러서 CLI
+  //  경로가 검증되지 않았다.)
+  //
+  // 케이스가 아니라 클래스를 고정한다 — usage에 적힌 모든 `--flag`를 실제로 넘겨 본다.
+  // **Options 절의 줄머리 플래그만** 센다. usage 전체에서 긁으면 설명 산문에 나오는
+  // 다른 스크립트의 플래그(`lint-draft --upload-result`)까지 잡혀 오탐이 난다.
+  const usage = run('upload-images.js', []);
+  const declared = [...new Set(
+    (usage.stdout.match(/^ {2}(--[a-z][a-z-]+)/gm) || []).map((l) => l.trim()),
+  )].filter((f) => f !== '--slug');           // --slug는 아래에서 항상 함께 넘긴다
+  assert.ok(declared.length >= 6, `usage에서 플래그를 찾지 못함: ${declared.join(',')}`);
+
+  // 값을 받는 플래그와 불리언 플래그를 구분해 각각 유효한 값을 준다
+  const VALUES = {
+    '--metadata': null,          // 아래에서 임시 파일로 채움
+    '--date': '2026-05-10',
+    '--work-dir': null,
+    '--max-size-kb': '150',
+    '--output': null,
+  };
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-flg-'));
+  const meta = path.join(dir, 'm.json');
+  fs.writeFileSync(meta, JSON.stringify({ primary_date: '2026-05-10', photos: [] }), 'utf8');
+  VALUES['--metadata'] = meta;
+  VALUES['--work-dir'] = path.join(dir, 'w');
+  VALUES['--output'] = path.join(dir, 'o.json');
+
+  const rejected = [];
+  for (const flag of declared) {
+    const args = ['/nonexistent.jpg', '--slug', 'abc-def'];
+    if (flag in VALUES) args.push(flag, VALUES[flag]);
+    else args.push(flag);
+    if (!args.includes('--date') && !args.includes('--metadata')) args.push('--date', '2026-05-10');
+    const r = run('upload-images.js', args);
+    if (/unknown option/.test(r.stderr)) rejected.push(`${flag}: ${r.stderr.split('\n')[0]}`);
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
+  assert.deepEqual(rejected, [],
+    `usage가 선언한 플래그를 파서가 거부함:\n  ${rejected.join('\n  ')}`);
+});
+
+test('upload-images: --allow-replace가 CLI에서 실제로 통한다', (t) => {
+  // 위 테스트가 클래스를 잡지만, 이 플래그는 **되돌릴 수 없는 동작**(이미 발행된
+  // 글의 이미지 교체)의 유일한 관문이므로 개별로도 고정한다.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-ar-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const r = run('upload-images.js',
+    ['/nonexistent.jpg', '--slug', 'abc-def', '--date', '2026-05-10', '--allow-replace']);
+  assert.doesNotMatch(r.stderr, /unknown option/, '--allow-replace를 파서가 거부함');
+  // 파일이 없어서 그 다음 단계에서 멈춘다 = 플래그 파싱은 통과했다
+  assert.match(r.stderr, /file not found/);
+
+  // usage와 CLAUDE.md가 이 플래그를 안내해야 한다 (모델은 usage로 인자를 확인한다)
+  const usage = run('upload-images.js', []);
+  // synopsis에도 나오므로 전체 매칭으로는 Options 항목 삭제를 못 잡는다 (뮤테이션이
+  // 잡아냄). 모델이 인자를 확인하는 곳은 **Options 절**이므로 거기를 직접 본다.
+  assert.match(usage.stdout, /^ {2}--allow-replace\s+\S/m, 'usage의 Options 절에 없음');
+  assert.match(usage.stdout, /\[--allow-replace\]/, 'usage synopsis에 없음');
+  const claudeMd = fs.readFileSync(path.join(ROOT, 'CLAUDE.md'), 'utf8');
+  assert.match(claudeMd, /--allow-replace/, 'CLAUDE.md에 없음');
+});

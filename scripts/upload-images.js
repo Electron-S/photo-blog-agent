@@ -5,12 +5,13 @@ const path = require('path');
 const { uploadBlogImages, DEFAULT_MAX_SIZE_KB, MAX_SIZE_KB_LIMIT } = require('../lib/github-assets');
 const { errFull, reportFatal } = require('../lib/err-text');
 const { checkDatePlausible, isValidCalendarDate } = require('../lib/slug');
+const { toOutputImage } = require('../lib/upload-result');
 const { canonicalSlugError } = require('../lib/asset-paths');
 
 const args = process.argv.slice(2);
 
 function printUsage() {
-  console.log('Usage: node upload-images.js <image1> [image2] ... --slug <slug> [--metadata path] [--date YYYY-MM-DD] [--work-dir dir] [--max-size-kb N] [--output path] [--local-only]');
+  console.log('Usage: node upload-images.js <image1> [image2] ... --slug <slug> [--metadata path] [--date YYYY-MM-DD] [--work-dir dir] [--max-size-kb N] [--output path] [--local-only] [--allow-replace]');
   console.log('');
   console.log('Options:');
   console.log('  --metadata      extract-exif.js 출력 JSON 경로. primary_date를 게시일로 사용');
@@ -22,6 +23,11 @@ function printUsage() {
   console.log('  --local-only    GitHub 업로드/검증 생략, 압축까지만 (네이버 발행 경로)');
   console.log('');
   console.log('날짜 우선순위: --date > --metadata의 primary_date > (없으면 exit 5, 멱등성 보호)');
+  console.log('  --allow-replace  이미 있는 원격 경로에 **다른 내용** 쓰기를 허용 (기본: 거부).');
+  console.log('                   같은 --slug로 사진을 추가/제거해 재실행하면 photo-NN이 밀려');
+  console.log('                   이미 발행된 글의 이미지가 전부 바뀝니다.');
+  console.log('                   내용이 같으면 애초에 재업로드하지 않으므로, 단순 재실행에는 필요 없습니다.');
+  console.log('');
   console.log('종료 코드: 0=전부 정상, 1=인자 오류(--slug 누락/비정규형 포함)·업로드/검증 실패,');
   console.log('           2=--output 쓰기 실패, 4=품질 저하(fallback/oversize/치수 결손), 5=날짜 출처 미상');
   console.log('           (계약 위반은 산출물이 없으므로 exit 1입니다 — exit 4로는 나오지 않습니다.)');
@@ -29,7 +35,7 @@ function printUsage() {
 }
 
 const FLAGS_WITH_VALUE = new Set(['--metadata', '--date', '--slug', '--work-dir', '--max-size-kb', '--output']);
-const BOOLEAN_FLAGS = new Set(['--local-only']);
+const BOOLEAN_FLAGS = new Set(['--local-only', '--allow-replace']);
 
 // upload-images는 위치 인자(이미지 경로)를 받으므로 lib/cli-args.js의 getArg를 그대로
 // 쓸 수 없다. 대신 같은 검증 규칙(값 누락·플래그 중복·미지 플래그 거부)을 여기서 지킨다.
@@ -275,38 +281,9 @@ async function main() {
   const result = {
     date,
     dateSource,
-    images: images.map((item) => ({
-      index: item.index,
-      originalPath: item.originalPath,
-      // 로컬 압축본 경로. 네이버 발행이 에디터에 직접 올릴 파일이며,
-      // 이게 없으면 하위 단계가 <date>-<hash12> 폴더명을 재계산해야 한다.
-      webpPath: item.webpPath ?? null,
-      webpUrl: item.webpUrl,
-      url: item.url,
-      // width/height는 조건부가 아니라 항상 내보낸다. 키가 없으면 초안 작성 모델이
-      // "정보 없음"으로 보고 추측하지만, null은 "모른다는 것이 확인됨"이라 추측을 막는다.
-      width: item.width ?? null,
-      height: item.height ?? null,
-      originalBytes: item.originalBytes,
-      webpBytes: item.webpBytes,
-      // width/height와 같은 이유로 **전부 무조건** 내보낸다. 예전에는 조건부
-      // spread라 watermarkApplied가 fallbackUsed일 때만(그때는 항상 false로)
-      // 등장했다 — 즉 이 JSON에 `watermarkApplied: true`가 한 번도 나오지 않아
-      // `if (!img.watermarkApplied)` 같은 자연스러운 검사가 정상 이미지 100%에서
-      // 오작동했다. 워터마크는 이 프로젝트의 이미지 보호 정책 자체다.
-      oversize: item.oversize === true,
-      fallbackUsed: item.fallbackUsed === true,
-      watermarkApplied: item.watermarkApplied === true,
-      orientationApplied: item.orientationApplied === true,
-      dimensionsError: item.dimensionsError ?? null,
-      compressionError: item.compressionError ?? null,
-      // 계약 위반(치수를 못 읽음)은 폴백과 조치가 다르다 — 원본 점검이 아니라
-      // sharp/파이프라인 점검이다. 이 필드를 빼면 summary.contractViolation만 남고
-      // "어느 이미지가 계약 위반인지"는 stderr에만 존재해 영속화되지 않는다.
-      contractError: item.contractError ?? null,
-      verificationError: item.verificationError ?? null,
-      error: item.error ?? null,
-    })),
+    // 투영은 lib/upload-result.js가 정본이다 (필드를 여기서 열거하면
+    // lib이 새 필드를 만들어도 산출물에 도달하지 않는 사고가 재발한다).
+    images: images.map(toOutputImage),
     summary,
   };
 

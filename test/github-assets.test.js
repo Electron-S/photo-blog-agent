@@ -254,6 +254,19 @@ test('uploadAsset — 이미 있는 경로에 다른 내용을 조용히 덮어�
   });
   assert.equal(puts.length, 0, '거부했는데 PUT이 나감');
 
+  // **옵션을 아예 넘기지 않아도 거부여야 한다.** 이 함수는 export되어 있고, 새
+  // 호출자가 옵션을 잊었을 때 조용히 교체되는 쪽으로 실패하면 안 된다.
+  // (기본값을 허용으로 되돌리는 뮤테이션을 아무 테스트도 잡지 못해서 추가했다 —
+  //  uploadBlogImages가 항상 명시적으로 넘기므로 기본값이 어디에도 안 닿았다.)
+  await withStub('deadbeef', async (ga) => {
+    await assert.rejects(
+      () => ga.uploadAsset(file, 'posts/d/photo-01.webp'),
+      (e) => e.kind === 'replace',
+      '옵션 생략 시 기본값이 허용이다 (거부여야 한다)',
+    );
+  });
+  assert.equal(puts.length, 0, '기본값으로 교체가 나감');
+
   // 명시적으로 허용하면 교체하고, 커밋 메시지가 사실을 말한다
   const replaced = await withStub('deadbeef',
     (ga) => ga.uploadAsset(file, 'posts/d/photo-01.webp', { allowReplace: true }));
@@ -264,4 +277,186 @@ test('uploadAsset — 이미 있는 경로에 다른 내용을 조용히 덮어�
   const created = await withStub(null, (ga) => ga.uploadAsset(file, 'posts/d/photo-09.webp'));
   assert.equal(created.status, 'created');
   assert.match(puts[0], /^Add /);
+});
+
+// --- 23차 리뷰 회귀 ---
+
+// uploadBlogImages를 스텁으로 돌리는 하네스. 실제 네트워크·GitHub push는 없다.
+async function withUploadStub({ remoteSha = null, headFailures = 0 }, run) {
+  const Module = require('node:module');
+  const origLoad = Module._load;
+  const puts = [];
+  let fails = headFailures;
+  // **PUT이 원격 상태를 바꾼다.** 이걸 반영하지 않으면 재시도 경로가 현실과 달라진다 —
+  // 실제로는 재시도 시점에 방금 올린 내용이 원격에 있어 uploadAsset이 'unchanged'를
+  // 돌려주는데, 고정 sha 스텁에서는 계속 'replaced'가 나왔다. 그래서 "재시도가
+  // uploadStatus를 강등하지 않는다"는 가드를 제거해도 테스트가 통과했다 (뮤테이션이
+  // 잡아냄). 스텁이 현실보다 관대하면 그만큼 테스트가 비어 있는 것이다.
+  let current = remoteSha;
+  const saved = { ...process.env };
+  Object.assign(process.env, { GITHUB_TOKEN: 'stub', GITHUB_OWNER: 'o', GITHUB_ASSET_REPO: 'r' });
+  Module._load = function load(request, ...rest) {
+    if (request === 'axios') {
+      return {
+        get: async () => {
+          if (current === null) { const e = new Error('nf'); e.response = { status: 404 }; throw e; }
+          return { data: { sha: current } };
+        },
+        put: async (u, b) => {
+          puts.push(b.message.split(' ')[0]);
+          const crypto = require('node:crypto');
+          const bytes = Buffer.from(b.content, 'base64');
+          current = crypto.createHash('sha1')
+            .update(`blob ${bytes.length}\u0000`).update(bytes).digest('hex');
+          return { data: {} };
+        },
+        head: async () => {
+          if (fails > 0) { fails -= 1; const e = new Error('x'); e.response = { status: 404 }; throw e; }
+          return { status: 200 };
+        },
+      };
+    }
+    return origLoad.call(this, request, ...rest);
+  };
+  const LIB = require.resolve('../lib/github-assets');
+  delete require.cache[LIB];
+  try {
+    return await run(require(LIB), puts);
+  } finally {
+    Module._load = origLoad;
+    delete require.cache[LIB];
+    for (const k of Object.keys(process.env)) delete process.env[k];
+    Object.assign(process.env, saved);
+  }
+}
+
+async function makeTestJpeg(dir) {
+  const sharp = require('sharp');
+  const p = require('node:path').join(dir, 'a.jpg');
+  await sharp({ create: { width: 300, height: 200, channels: 3, background: { r: 10, g: 20, b: 30 } } })
+    .jpeg().toFile(p);
+  return p;
+}
+
+test('업로드 결과 투영이 lib의 모든 키를 덮는다', async (t) => {
+  // 예전에는 scripts/upload-images.js가 필드를 **하나씩 열거해** 옮겼고, lib이 새
+  // 필드(remotePath·uploadStatus)를 만들어도 그 목록에 넣는 것을 잊으면 인메모리에만
+  // 존재했다. 실제로 그렇게 됐다 — "검증 실패 시 되돌릴 대상 주소를 남긴다"는 수정이
+  // tmp/upload-<slug>.json에 한 글자도 도달하지 않아 수정 전과 결과가 같았다.
+  // 케이스가 아니라 **클래스**를 고정한다: lib이 만드는 키는 전부 투영에 있어야 한다.
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const pathMod = require('node:path');
+  const { OUTPUT_IMAGE_KEYS, INTENTIONALLY_OMITTED } = require('../lib/upload-result');
+
+  const dir = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'pba-proj-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const img = await makeTestJpeg(dir);
+
+  const collect = (result) => Object.keys(result.images[0]);
+  const keySets = [];
+  // 성공 경로와 실패 경로가 서로 다른 키를 만들 수 있으므로 둘 다 본다
+  keySets.push(await withUploadStub({}, (ga) => ga.uploadBlogImages([img], {
+    date: '2026-05-14', slug: 'trip', workDir: pathMod.join(dir, 'w1'),
+  }).then(collect)));
+  keySets.push(await withUploadStub({ headFailures: 99 }, (ga) => ga.uploadBlogImages([img], {
+    date: '2026-05-14', slug: 'trip', workDir: pathMod.join(dir, 'w2'),
+  }).then(collect)));
+  keySets.push(await withUploadStub({}, (ga) => ga.uploadBlogImages(['/nonexistent.jpg'], {
+    date: '2026-05-14', slug: 'trip', workDir: pathMod.join(dir, 'w3'),
+  }).then(collect)));
+
+  const libKeys = [...new Set(keySets.flat())];
+  const dropped = libKeys.filter((k) => !OUTPUT_IMAGE_KEYS.includes(k) && !INTENTIONALLY_OMITTED.has(k));
+  assert.deepEqual(dropped, [],
+    `lib이 만드는 키가 산출물에 도달하지 않음: ${dropped.join(', ')}\n`
+    + '  lib/upload-result.js의 toOutputImage에 추가하거나, 빼는 이유를 '
+    + 'INTENTIONALLY_OMITTED에 적으세요.');
+});
+
+test('검증이 실패해도 공개된 주소는 산출물에 남는다', async (t) => {
+  // 바이트는 공개 저장소에 있는데 tmp/upload-<slug>.json(모델 간 핸드오프 정본)에는
+  // 주소가 없고 stderr에만 남았다 — 되돌릴 대상을 찾을 수 없었다.
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const pathMod = require('node:path');
+  const { toOutputImage } = require('../lib/upload-result');
+
+  const dir = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'pba-rp-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const img = await makeTestJpeg(dir);
+
+  const { result, puts } = await withUploadStub({ headFailures: 99 }, async (ga, p) => ({
+    result: await ga.uploadBlogImages([img], {
+      date: '2026-05-14', slug: 'trip', workDir: pathMod.join(dir, 'w'),
+    }),
+    puts: p,
+  }));
+  const out = toOutputImage(result.images[0]);
+
+  assert.ok(puts.length > 0, '전제: 바이트가 실제로 push됐다');
+  assert.equal(out.webpUrl, null, '검증 실패인데 쓸 수 있는 URL을 남김');
+  assert.match(String(out.remotePath), /^posts\/2026-05-14-[0-9a-f]{12}\/photo-01\.webp$/,
+    `공개된 주소가 기록되지 않음: ${JSON.stringify(out.remotePath)}`);
+  assert.equal(out.uploadStatus, 'created');
+});
+
+test('재시도가 uploadStatus를 unchanged로 강등하지 않는다', async (t) => {
+  // 재시도 시점에는 방금 PUT한 내용이 이미 원격에 있어 uploadAsset이 'unchanged'를
+  // 돌려준다. 그걸 그대로 쓰면 **이미 LIVE인 글의 이미지를 실제로 교체한 실행이
+  // 기록상 "아무것도 건드리지 않음"**이 된다 (실측: PUT은 'Replace'인데 기록은
+  // 'unchanged'). 재시도가 도는 조건은 GitHub Pages 전파 지연이라 예외가 아니다.
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const pathMod = require('node:path');
+  const { toOutputImage } = require('../lib/upload-result');
+
+  const dir = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'pba-rt-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const img = await makeTestJpeg(dir);
+
+  const run = (stub, options, w) => withUploadStub(stub, async (ga, puts) => ({
+    out: toOutputImage((await ga.uploadBlogImages([img], {
+      date: '2026-05-14', slug: 'trip', workDir: pathMod.join(dir, w), ...options,
+    })).images[0]),
+    puts,
+  }));
+
+  // 교체 + 재시도 1회 → 'replaced'가 유지되어야 한다
+  const replaced = await run({ remoteSha: 'deadbeef', headFailures: 1 }, { allowReplace: true }, 'w1');
+  assert.deepEqual(replaced.puts, ['Replace'], '전제: 교체 PUT이 나갔다');
+  assert.equal(replaced.out.uploadStatus, 'replaced',
+    `교체했는데 ${JSON.stringify(replaced.out.uploadStatus)}로 기록됨`);
+
+  // 신규 + 재시도 1회 → 'created'가 유지되어야 한다
+  const created = await run({ headFailures: 1 }, {}, 'w2');
+  assert.deepEqual(created.puts, ['Add'], '전제: 신규 PUT이 나갔다');
+  assert.equal(created.out.uploadStatus, 'created',
+    `신규인데 ${JSON.stringify(created.out.uploadStatus)}로 기록됨`);
+});
+
+test('교체 거부는 기본값이고, 부분 업로드 위험을 함께 안내한다', async (t) => {
+  // 거부는 이미지 단위라 같은 배치의 다른 사진(특히 새로 추가한 것)은 이 판정 전에
+  // 이미 push됐을 수 있다. "새 글이라면 --slug를 다르게 주세요"만 안내하면 그것들이
+  // 옛 폴더에 고아로 남아 계속 공개된다.
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const pathMod = require('node:path');
+
+  const dir = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'pba-rj-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const img = await makeTestJpeg(dir);
+
+  const { result, puts } = await withUploadStub({ remoteSha: 'deadbeef' }, async (ga, p) => ({
+    result: await ga.uploadBlogImages([img], {
+      date: '2026-05-14', slug: 'trip', workDir: pathMod.join(dir, 'w'),
+    }),
+    puts: p,
+  }));
+  assert.equal(puts.length, 0, '거부했는데 PUT이 나감');
+  const err = String(result.images[0].error);
+  assert.match(err, /이미 있는 경로에 다른 내용/);
+  assert.match(err, /--allow-replace/);
+  assert.match(err, /같은 배치의 다른 사진은 이미 업로드/, '부분 업로드 위험을 안내하지 않음');
+  assert.match(err, /remotePath/, '무엇이 올라갔는지 확인할 곳을 안내하지 않음');
 });

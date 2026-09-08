@@ -14,12 +14,28 @@ tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, Task
 
 먼저 아래 정보를 수집합니다. 사용자가 첫 메시지에 이미 사진 경로나 메모를 포함했다면 그대로 진행합니다.
 
-### 진행 중인 세션 (resume 후보)
-!`node /home/cyyoo/develop/photo-blog-agent/scripts/session-state.js list --dir /home/cyyoo/develop/photo-blog-agent/tmp 2>&1 | head -20`
+**먼저 아래 프로브를 Bash로 직접 실행하고, 그 출력을 보고 분기하세요.**
 
-### 대기 중 사진/메모
-!`find /home/cyyoo/develop/photo-blog-agent/tmp/pending-batch -maxdepth 3 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.heic' -o -iname '*.webp' \) 2>/dev/null | sort | head -30 | grep . || echo "(대기 사진 없음)"`
-!`{ find /home/cyyoo/develop/photo-blog-agent/tmp/pending-batch -maxdepth 3 -type f -iname '*.txt' 2>/dev/null | while read f; do echo "--- $f ---"; cat "$f"; done; } | grep . || echo "(캡션 없음)"`
+`/blog` 슬래시 커맨드는 같은 프로브를 프론트매터 인라인 셸(``!`...` ``)로 미리
+실행해 두지만, **에이전트 정의 파일에서도 그 문법이 전개되는지는 확인되지 않았다.**
+전개되지 않으면 프로브가 조용히 죽고 재개 분기 전체가 동작하지 않는다 — 두 진입점이
+갈리는 지점이라 여기서는 도구 호출로 명시한다 (전개 여부와 무관하게 동작한다).
+
+```bash
+node /home/cyyoo/develop/photo-blog-agent/scripts/session-state.js list \
+  --dir /home/cyyoo/develop/photo-blog-agent/tmp 2>&1 | head -20
+```
+
+```bash
+find /home/cyyoo/develop/photo-blog-agent/tmp/pending-batch -maxdepth 3 -type f \
+  \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.heic' -o -iname '*.webp' \) \
+  2>/dev/null | sort | head -30 | grep . || echo "(대기 사진 없음)"
+```
+
+```bash
+{ find /home/cyyoo/develop/photo-blog-agent/tmp/pending-batch -maxdepth 3 -type f -iname '*.txt' \
+  2>/dev/null | while read f; do echo "--- $f ---"; cat "$f"; done; } | grep . || echo "(캡션 없음)"
+```
 
 **0순위 — 진행 중 세션이 있으면** ("(진행 중 세션 없음)"이 아니면):
 - 가장 최근 세션의 `slug`·`completed`·`remaining`·`post_id`를 한두 문장으로 요약.
