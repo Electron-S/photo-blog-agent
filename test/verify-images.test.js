@@ -81,3 +81,65 @@ test('mapWithConcurrency — limit이 1 미만이면 던진다 (조용한 전부
     `limit=${JSON.stringify(bad)} 를 통과시킴`,
   )));
 });
+
+// --- 19차 리뷰 회귀 ---
+
+test('verifyImageUrls — 2xx를 정상으로 보고 일시 실패는 재시도한다', async (t) => {
+  // 판정이 `=== 200`이라 204·206이 broken이 됐고, 재시도가 없어 일시적 5xx/429
+  // 한 번에 create-draft/update-post가 exit 1로 끝났다 — 같은 저장소가 **동일
+  // URL**에 대해 업로드 시점에는 3회/3초 재시도가 필요하다고 판단한 것과 비대칭이다.
+  const Module = require('node:module');
+  const LIB = require.resolve('../lib/verify-images');
+
+  const withAxios = async (head, run) => {
+    const origLoad = Module._load;
+    const stub = {};
+    stub.head = head;
+    Module._load = function load(request, ...rest) {
+      if (request === 'axios') return stub;
+      return origLoad.call(this, request, ...rest);
+    };
+    delete require.cache[LIB];
+    try {
+      return await run(require(LIB));
+    } finally {
+      Module._load = origLoad;
+      delete require.cache[LIB];
+    }
+  };
+
+  const HTML = '<img src="https://x/a.webp">';
+
+  // 204·206은 정상이다
+  for (const status of [200, 201, 204, 206]) {
+    const r = await withAxios(async () => ({ status }),
+      ({ verifyImageUrls }) => verifyImageUrls(HTML));
+    assert.equal(r.ok, true, `status ${status} 를 broken으로 판정`);
+  }
+
+  // 일시적 5xx는 재시도해서 살린다
+  let calls = 0;
+  const retried = await withAxios(async () => {
+    calls += 1;
+    if (calls < 3) {
+      const err = new Error('boom');
+      err.response = { status: 503 };
+      throw err;
+    }
+    return { status: 200 };
+  }, ({ verifyImageUrls }) => verifyImageUrls(HTML, { retries: 3 }));
+  assert.equal(retried.ok, true, '재시도로 살아나지 않음');
+  assert.equal(calls, 3);
+
+  // 404는 재시도하지 않는다 (배포가 안 된 것이다)
+  let notFound = 0;
+  const gone = await withAxios(async () => {
+    notFound += 1;
+    const err = new Error('nope');
+    err.response = { status: 404 };
+    throw err;
+  }, ({ verifyImageUrls }) => verifyImageUrls(HTML, { retries: 3 }));
+  assert.equal(gone.ok, false);
+  assert.equal(notFound, 1, '404를 재시도함 (시간 낭비)');
+  assert.equal(gone.broken[0].status, 404);
+});

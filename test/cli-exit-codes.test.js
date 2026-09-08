@@ -506,3 +506,40 @@ test('naver:publish — 알 수 없는 플래그를 조용히 무시하지 않�
   // 값에 하이픈이 들어가도 플래그로 오인하지 않는다
   assert.equal(run('naver-publish-post.js', ['--draft-title', '제목 --아님']).status, 12);
 });
+
+test('update-post: --labels가 조용히 라벨을 전량 삭제하지 않는다', () => {
+  // `if (labelsArg)`는 "플래그가 왔는가"만 보는데 `filter(Boolean)`이 빈 배열을
+  // 낼 수 있고, 그것이 PATCH에 실리면 **라벨이 전량 삭제**된다 (실측: exit 0,
+  // 경고 0건). `--labels ""`(보존)과 `--labels " "`(삭제)가 정반대 의미였다.
+  // 워크플로우가 `--labels "$LABELS"`로 호출하고 join 결과가 비면 SEO 라벨
+  // 5~10개가 아무 표시 없이 사라진다.
+  for (const bad of [',', ' ', ',,', ' , ']) {
+    const r = run('update-post.js', ['--post-id', '1', '--labels', bad]);
+    assert.equal(r.status, 1, `--labels ${JSON.stringify(bad)} status=${r.status}`);
+    assert.match(r.stderr, /유효한 라벨이 없습니다/);
+    assert.match(r.stderr, /생략하세요/, '보존 방법을 안내하지 않음');
+  }
+  // 플래그 자체를 생략하면 "수정할 것이 없다"로 끝난다 (라벨은 보존된다)
+  const none = run('update-post.js', ['--post-id', '1']);
+  assert.equal(none.status, 1);
+  assert.match(none.stderr, /at least one of/);
+});
+
+test('session-state: primary_date를 무검증으로 저장하지 않는다', (t) => {
+  // 스키마가 `^\d{4}-\d{2}-\d{2}$`를 선언하는데 무검증 대입이었다 —
+  // `--primary-date "2026/05/10"`이 exit 0으로 디스크에 남았고, 재개하는 다른
+  // 세션·모델이 그 값을 **방문 날짜**로 읽는다. slug은 SLUG_RE로 강제되는데
+  // 패턴 제약이 있는 필드 중 이것만 빠져 있었다.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-pd-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  for (const bad of ['2026/05/10', 'not-a-date', '2026-5-10', '2026-02-30', '20260510']) {
+    const r = run('session-state.js', ['init', '--slug', 'pd', '--dir', dir, '--primary-date', bad]);
+    assert.equal(r.status, 9, `--primary-date ${bad} status=${r.status}`);
+    assert.equal(fs.existsSync(path.join(dir, 'session-state-pd.json')), false,
+      `${bad}: 잘못된 값이 디스크에 남음`);
+  }
+  // 정상 값은 통과한다
+  assert.equal(run('session-state.js',
+    ['init', '--slug', 'pd', '--dir', dir, '--primary-date', '2026-05-10']).status, 0);
+});

@@ -26,7 +26,7 @@ width/height 확인, session-state 스키마, exit 코드 안내 등 5곳이 서
 ### Step 2 — EXIF 추출
 
 ```bash
-node /home/cyyoo/develop/photo-blog-agent/scripts/extract-exif.js <사진들> --output /home/cyyoo/develop/photo-blog-agent/tmp/metadata-<오늘날짜>.json
+node /home/cyyoo/develop/photo-blog-agent/scripts/extract-exif.js <사진들> --output /home/cyyoo/develop/photo-blog-agent/tmp/metadata-<촬영날짜>.json
 ```
 
 - 출력 JSON을 Read해서 `primary_date`, `primary_date_source_count`, `gps_center`, `date_range`를 확인합니다.
@@ -40,7 +40,7 @@ EXIF만으로는 부족한 장면·간판·메뉴판 정보를 디스크로 영�
 
 ```bash
 node /home/cyyoo/develop/photo-blog-agent/scripts/analyze-photos.js <사진들> \
-  --output /home/cyyoo/develop/photo-blog-agent/tmp/photo-analysis-<오늘날짜>.json
+  --output /home/cyyoo/develop/photo-blog-agent/tmp/photo-analysis-<촬영날짜>.json
 ```
 
 이 스크립트는 시각 분석을 직접 하지 않고 **빈 JSON 골격만 디스크에 씁니다**. 채우는 것은 실행 중인 당신(모델)의 몫입니다.
@@ -89,7 +89,7 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/session-state.js read \
 
 ```bash
 node /home/cyyoo/develop/photo-blog-agent/scripts/upload-images.js <사진들> \
-  --metadata /home/cyyoo/develop/photo-blog-agent/tmp/metadata-<오늘날짜>.json \
+  --metadata /home/cyyoo/develop/photo-blog-agent/tmp/metadata-<촬영날짜>.json \
   --slug <영문-슬러그> \
   --output /home/cyyoo/develop/photo-blog-agent/tmp/upload-<슬러그>.json
 ```
@@ -113,8 +113,8 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/session-state.js init \
   --slug <slug> \
   --dir /home/cyyoo/develop/photo-blog-agent/tmp \
   --primary-date <metadata의 primary_date> \
-  --metadata-path /home/cyyoo/develop/photo-blog-agent/tmp/metadata-<날짜>.json \
-  --analysis-path /home/cyyoo/develop/photo-blog-agent/tmp/photo-analysis-<날짜>.json \
+  --metadata-path /home/cyyoo/develop/photo-blog-agent/tmp/metadata-<촬영날짜>.json \
+  --analysis-path /home/cyyoo/develop/photo-blog-agent/tmp/photo-analysis-<촬영날짜>.json \
   --upload-result-path /home/cyyoo/develop/photo-blog-agent/tmp/upload-<slug>.json
 
 node /home/cyyoo/develop/photo-blog-agent/scripts/session-state.js update \
@@ -139,7 +139,7 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/session-state.js update \
 - 식당/카페는 대표 메뉴와 가격대, 그 외 장소는 운영시간·주차·이벤트.
 - 장소가 모호하면 "여기 ○○ 맞나요?" 사용자에게 확인. 단정해서 쓰지 않습니다.
 - 출처 없는 가격/시간은 **"확인 필요"**로 표기하거나 본문에서 빼고 `fact_check_notes`에 남깁니다.
-- `tmp/photo-analysis-<날짜>.json`을 Read해서 사진 속 간판·메뉴판 텍스트를 장소 식별의 단서로 활용합니다 (Step 2.5에서 비전 모델이 이미 채워둔 경우).
+- `tmp/photo-analysis-<촬영날짜>.json`을 Read해서 사진 속 간판·메뉴판 텍스트를 장소 식별의 단서로 활용합니다 (Step 2.5에서 비전 모델이 이미 채워둔 경우).
 
 ### Step 5 — 초안 작성
 
@@ -162,7 +162,7 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/session-state.js update \
 
 작성 절차:
 
-1. `tmp/photo-analysis-<날짜>.json`을 Read해서 채워진 `scene_description`·`text_visible`·`notable_objects`를 본문 묘사에 활용합니다 (`analyzed_by_model_capability`가 `"text-only"`면 EXIF·캡션만으로 진행).
+1. `tmp/photo-analysis-<촬영날짜>.json`을 Read해서 채워진 `scene_description`·`text_visible`·`notable_objects`를 본문 묘사에 활용합니다 (`analyzed_by_model_capability`가 `"text-only"`면 EXIF·캡션만으로 진행).
 2. HTML 본문을 `/home/cyyoo/develop/photo-blog-agent/tmp/draft-<slug>.html`로 Write.
 3. **초안을 lint로 자가 검증합니다** (Blogger에 올리기 전에 오프라인으로 끝냅니다):
    ```bash
@@ -221,7 +221,7 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/session-state.js update \
 ```bash
 node /home/cyyoo/develop/photo-blog-agent/scripts/publish-post.js \
   --post-id <ID> \
-  --slug-from-date /home/cyyoo/develop/photo-blog-agent/tmp/metadata-<오늘날짜>.json
+  --slug-from-date /home/cyyoo/develop/photo-blog-agent/tmp/metadata-<촬영날짜>.json
 ```
 
 - `primary_date`가 null이면 위 명령이 실패합니다. 사용자에게 받은 날짜로 `--slug YYYY-MM-DD`로 직접 명시합니다.
@@ -245,7 +245,7 @@ node /home/cyyoo/develop/photo-blog-agent/scripts/publish-post.js \
 4. **사용자 OK 없이 발행 금지**: 수정·업데이트는 자동, 발행만은 명시적 동의 필요.
 5. **exit 코드 우회 금지**: exit 2/3/4/5/6/7/8은 모두 root cause가 있는 신호입니다. `--no-verify`나 임의 fallback 사용 금지. 특히 **exit 8(lint 위반)은 우회 플래그가 아예 없습니다** — 본문을 고치는 것이 유일한 해결입니다.
 6. **사진이 한 장도 없으면 진행 안 함**: 글의 원본성은 사진에서 나옴. 텍스트만으로 글을 만들지 않습니다.
-7. **시각 분석은 영속화**: Step 2.5 직후 `tmp/photo-analysis-<날짜>.json`을 채우면, 같은 글의 다음 세션/모델이 그 내용을 그대로 읽어서 사용한다. **재분석 판단은 entry 단위(`photos[].analysis_status === "pending"`)로 한다** — 최상위 `analyzed_by_model_capability`만 보면, 사진을 추가해 재실행했을 때 새로 붙은 `pending` entry를 건너뛰어 그 사진이 영구히 비게 된다.
+7. **시각 분석은 영속화**: Step 2.5 직후 `tmp/photo-analysis-<촬영날짜>.json`을 채우면, 같은 글의 다음 세션/모델이 그 내용을 그대로 읽어서 사용한다. **재분석 판단은 entry 단위(`photos[].analysis_status === "pending"`)로 한다** — 최상위 `analyzed_by_model_capability`만 보면, 사진을 추가해 재실행했을 때 새로 붙은 `pending` entry를 건너뛰어 그 사진이 영구히 비게 된다.
 8. **세션 상태는 slug 단위, 갱신은 반드시 CLI로**: Step 3 이후 모든 단계 종료 시 `scripts/session-state.js update`로 상태를 갱신해 중단 지점부터 재개 가능하게 둔다. **JSON을 Write 도구로 직접 쓰지 않는다** — `steps_completed`/`steps_remaining` 두 배열을 손으로 동기화하면 하나만 틀려도 재개가 조용히 깨진다. 모드 진입 시 상태가 있으면 사용자에게 이어 진행 여부를 묻는다.
 
 ## 사진 입력 누적 처리

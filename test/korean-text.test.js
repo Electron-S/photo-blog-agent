@@ -74,7 +74,7 @@ test('splitSentences — 빈 입력과 구두점만', () => {
 
 test('findEmoji — 장식용 기호를 놓치지 않는다', () => {
   // \p{Extended_Pictographic} 단독으로는 전부 미탐이던 것들
-  for (const c of [cp(0x2713), cp(0x2605), cp(0x2606), cp(0x266C), cp(0x261E), cp(0x25A0), cp(0x25CF)]) {
+  for (const c of [cp(0x2713), cp(0x2605), cp(0x2606), cp(0x266C), cp(0x261E)]) {
     assert.equal(findEmoji(c).length, 1, `U+${c.codePointAt(0).toString(16)} 미탐`);
   }
   for (const c of [cp(0x1F600), cp(0x1F525), cp(0x1F4CD), cp(0x2705), cp(0x2B50), cp(0x2764), cp(0x260E)]) {
@@ -249,4 +249,61 @@ test('번호 목록 마스킹은 과소 계산을 만들지 않는다 (개수로
   assert.equal(countSentences('메뉴는 이렇다. 1. 파스타 2. 리조또'), 2);
   assert.equal(countSentences('방문일은 2026. 5. 10. 이었다.'), 1, '한국식 날짜 표기');
   assert.equal(countSentences('가격은 12.5만원이었다.'), 1);
+});
+
+// --- 19차 리뷰 회귀 ---
+
+test('도형 문자는 이모지가 아니다 (프로젝트가 쓰라고 지시하는 표기)', () => {
+  // ■□▲△▼▽◆◇○●는 유니코드 어느 속성으로도 이모지가 아니고(ExtPict/EmojiPres/
+  // Emoji 전부 false), style-guide가 금지한 목록("체크표시, 별, 불꽃, 핀")에도
+  // 없다. 손으로 추가한 것이었다.
+  //
+  // 그리고 `○`는 이 프로젝트가 **쓰라고 지시하는 표기**다 — blog-draft.md의
+  // "지난 ○월 ○일", workflow-steps.md의 "여기 ○○ 맞나요?", 그리고 lint 자신의
+  // no-writing-date-expression error 메시지까지. 지시를 따른 초안이
+  // no-emoji(error, 우회 플래그 없음)로 막혔고 원인도 알 수 없었다.
+  for (const c of ['○', '●', '■', '□', '▲', '△', '▼', '▽', '◆', '◇']) {
+    assert.deepEqual(findEmoji(c), [], `${c} 가 이모지로 잡힘`);
+  }
+  assert.deepEqual(findEmoji('지난 ○월 ○일 다녀왔다'), []);
+  assert.deepEqual(findEmoji('홍길○ 사장님'), []);
+
+  // style-guide가 명시적으로 금지한 것은 계속 잡는다
+  for (const c of ['★', '☆', '✓', '☞', '♬', '🔥', '📍']) {
+    assert.equal(findEmoji(c).length, 1, `${c} 미탐`);
+  }
+});
+
+test('계량이 유니코드 정규화에 안정적이다 (NFD)', () => {
+  // 문장 조각 필터 `/[가-힣A-Za-z0-9]/`와 경계 lookahead `(?=[가-힣A-Z])`는
+  // NFD 자모(U+1100~U+11FF)를 하나도 매칭하지 못한다. 같은 초안이 정규화 형태에
+  // 따라 세 방향으로 다 깨졌다 (실측: 2356자/error 0 → 4681자/error 4건,
+  // "0문장뿐입니다"인데 문단마다 세 문장이 보인다). macOS 파일 시스템·일부
+  // 편집기·클립보드가 NFD를 만든다.
+  const text = '첫 문장이 보였다. 문을 열자 향이 났다. 자리에 앉았다.';
+  const nfd = text.normalize('NFD');
+  assert.notEqual(text, nfd, '전제: 두 형태가 다르다');
+
+  assert.equal(countChars(nfd), countChars(text));
+  assert.equal(countSentences(nfd), countSentences(text));
+  assert.deepEqual(splitSentences(nfd), splitSentences(text));
+  assert.equal(normalizeWhitespace(nfd), normalizeWhitespace(text));
+});
+
+test('보이지 않는 문자로 분량 게이트를 뚫을 수 없다', () => {
+  // `\s`는 U+200B(ZWSP)·U+200C·U+2060을 매칭하지 않는다. 실측: 1396자 초안에
+  // ZWSP 405개를 넣으면 bodyChars 1801로 측정돼 body-min-chars(error)를 통과했다.
+  // 리서치 텍스트를 웹에서 복사하면 ZWSP가 실제로 섞여 들어온다.
+  const cpOf = (n) => String.fromCodePoint(n);
+  for (const cp of [0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF, 0x00AD, 0x180E]) {
+    const padded = `가나다${cpOf(cp).repeat(500)}`;
+    assert.equal(countChars(padded), 3,
+      `U+${cp.toString(16).toUpperCase()} 500개가 글자수로 셈됨: ${countChars(padded)}`);
+  }
+  // 보이지 않는 문자만 있으면 빈 문자열이다 (alt 검사가 이것을 쓴다)
+  assert.equal(normalizeWhitespace(cpOf(0x200B)), '');
+  // <br> 센티널은 공백으로 남는다 (문장 경계 역할)
+  assert.equal(normalizeWhitespace(`가${cpOf(0)}나`), '가 나');
+  // 보이는 문자는 그대로
+  assert.equal(countChars('가나다'), 3);
 });

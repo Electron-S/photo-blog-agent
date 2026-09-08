@@ -53,7 +53,22 @@ async function main() {
   const updateData = {};
   if (title) updateData.title = title;
   if (content) updateData.content = content;
-  if (labelsArg) updateData.labels = labelsArg.split(',').map(l => l.trim()).filter(Boolean);
+  if (labelsArg) {
+    const labels = labelsArg.split(',').map((l) => l.trim()).filter(Boolean);
+    // **빈 배열을 조용히 보내지 않는다.** `if (labelsArg)`는 "플래그가 왔는가"만
+    // 보는데 `filter(Boolean)`이 빈 배열을 낼 수 있고, 그것이 PATCH에 실리면
+    // **라벨이 전량 삭제**된다 (실측: `--labels ","`·`--labels " "` -> exit 0,
+    // 경고 0건). `--labels ""`(보존)과 `--labels " "`(삭제)가 정반대 의미였다.
+    // 워크플로우가 `--labels "$LABELS"`로 호출하고 join 결과가 비면 SEO 라벨
+    // 5~10개가 아무 표시 없이 사라진다 — CLAUDE.md가 보장한 "생략 시 보존"과
+    // 반대 방향이다.
+    if (labels.length === 0) {
+      console.error(`Error: --labels에 유효한 라벨이 없습니다 (받음: ${JSON.stringify(labelsArg)}).`);
+      console.error('  라벨을 **보존**하려면 --labels를 아예 생략하세요 (PATCH에 labels를 넣지 않습니다).');
+      process.exit(1);
+    }
+    updateData.labels = labels;
+  }
 
   if (Object.keys(updateData).length === 0) {
     console.error('Error: at least one of --title, --content, or --labels is required');

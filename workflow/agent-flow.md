@@ -40,7 +40,7 @@
 
 ## 스크립트 사용법
 
-[README.md의 스크립트 절](README.md#스크립트-scripts)과 [종료 코드 표](README.md#종료-코드)를 참조하세요.
+[README.md의 스크립트 절](../README.md#스크립트-scripts)과 [종료 코드 표](../README.md#종료-코드)를 참조하세요.
 명령·플래그·exit 코드의 정본은 README입니다.
 
 ## Success Criteria

@@ -1304,3 +1304,108 @@ test('새 표면형 계량 — error 오탐 0, 미탐은 warn이 전부 덮는�
   const caught = VIOLATION.filter((t) => of(t).error).length;
   assert.ok(caught >= 12, `error 적중이 ${caught}/${VIOLATION.length}로 떨어졌다`);
 });
+
+test('alt에 보이지 않는 문자만 있으면 img-alt-nonempty가 잡는다', () => {
+  // `.trim()`은 ZWSP를 제거하지 않아 `alt="<ZWSP>"`가 통과했다.
+  const ZW = String.fromCodePoint(0x200B);
+  const FIG = (alt) => '<figure style="margin:1.5em 0;text-align:center;position:relative;">'
+    + `<img src="https://x/p.webp" width="1024" height="768" loading="lazy" alt="${alt}" `
+    + 'style="max-width:100%;height:auto;"><figcaption>해질녘 가게 앞 풍경입니다</figcaption></figure>';
+  const blocked = (alt) => lintDraftHtml(FIG(alt), {}).errors
+    .some((e) => e.rule === 'img-alt-nonempty');
+
+  assert.equal(blocked(ZW), true, 'ZWSP만 있는 alt가 통과');
+  assert.equal(blocked(ZW.repeat(5)), true);
+  assert.equal(blocked('&#8203;'), true);
+  assert.equal(blocked('가게 외관 사진'), false);
+});
+
+test('img-loading-lazy는 대소문자를 무시한다', () => {
+  // `loading`은 HTML 스펙상 ASCII 대소문자 무시 열거 속성이라 브라우저가 LAZY를
+  // 정상 처리한다. 엄격 비교는 오탐이고 error라 발행이 막혔다.
+  const FIG = (loading) => '<figure style="margin:1.5em 0;text-align:center;position:relative;">'
+    + `<img src="https://x/p.webp" width="1024" height="768" loading="${loading}" alt="가게 외관" `
+    + 'style="max-width:100%;height:auto;"><figcaption>해질녘 가게 앞 풍경입니다</figcaption></figure>';
+  const blocked = (loading) => lintDraftHtml(FIG(loading), {}).errors
+    .some((e) => e.rule === 'img-loading-lazy');
+
+  for (const v of ['lazy', 'LAZY', 'Lazy', ' lazy ']) {
+    assert.equal(blocked(v), false, `loading="${v}" 가 차단됨`);
+  }
+  for (const v of ['eager', '', 'auto']) {
+    assert.equal(blocked(v), true, `loading="${v}" 를 놓침`);
+  }
+});
+
+test('image-order는 폴더가 바뀌면 순서를 새로 센다', () => {
+  // photoIndexOf가 `photo-NN.webp$`만 봐서, 여러 폴더의 이미지가 섞이면
+  // (이전 세션 이미지 재사용 — img-not-in-upload-result가 정상 시나리오로
+  // 인정하는 경우) 각 폴더 안에서 오름차순인데도 오탐이 났다.
+  const IMG = (src) => '<figure style="margin:1.5em 0;text-align:center;position:relative;">'
+    + `<img src="${src}" width="1024" height="768" loading="lazy" alt="사진 설명" `
+    + 'style="max-width:100%;height:auto;"><figcaption>해질녘 풍경입니다</figcaption></figure>'
+    + '<p>첫 문장입니다. 둘째 문장입니다.</p>';
+  const warned = (srcs) => lintDraftHtml(srcs.map(IMG).join(''), {}).warnings
+    .some((w) => w.rule === 'image-order');
+
+  // 폴더별로 오름차순이면 경고하지 않는다
+  assert.equal(warned([
+    'https://x/posts/2026-05-10-aaa/photo-01.webp',
+    'https://x/posts/2026-05-10-aaa/photo-02.webp',
+    'https://x/posts/2026-04-01-bbb/photo-01.webp',
+    'https://x/posts/2026-04-01-bbb/photo-02.webp',
+  ]), false, '폴더가 바뀐 것을 순서 역전으로 오탐');
+
+  // 같은 폴더 안에서 역전이면 경고한다
+  assert.equal(warned([
+    'https://x/posts/2026-05-10-aaa/photo-02.webp',
+    'https://x/posts/2026-05-10-aaa/photo-01.webp',
+  ]), true, '같은 폴더의 역전을 놓침');
+});
+
+test('p-sentence-count에 하한이 없다 (짧은 단락은 스타일 가이드가 권장)', () => {
+  // style-guide가 "짧은 한두 문장 단락과 조금 긴 단락을 번갈아 두면 호흡이
+  // 자연스러워진다"고 명시적으로 권장하는데 하한 2가 그것에 warn을 냈다.
+  const warned = (html) => lintDraftHtml(html, {}).warnings
+    .some((w) => w.rule === 'p-sentence-count');
+  assert.equal(warned('<p>한 문장뿐입니다.</p>'), false);
+  assert.equal(warned('<p>두 문장입니다. 이렇게요.</p>'), false);
+  // 상한은 유지한다
+  assert.equal(warned('<p>하나. 둘. 셋. 넷. 다섯.</p>'), true);
+});
+
+test('style-canonical-form이 후행 세미콜론 차이에 경고하지 않는다', () => {
+  // 세미콜론 하나 차이로 이미지 7장 전부에 warn이 떠 순수 노이즈였다.
+  const FIG = (style) => '<figure style="margin:1.5em 0;text-align:center;position:relative;">'
+    + `<img src="https://x/p.webp" width="1024" height="768" loading="lazy" alt="가게 외관" `
+    + `style="${style}"><figcaption>해질녘 가게 앞 풍경입니다</figcaption></figure>`;
+  const warned = (style) => lintDraftHtml(FIG(style), {}).warnings
+    .some((w) => w.rule === 'style-canonical-form');
+
+  assert.equal(warned('max-width:100%;height:auto;'), false);
+  assert.equal(warned('max-width:100%;height:auto'), false, '후행 세미콜론 차이에 경고');
+  assert.equal(warned('max-width: 100%; height: auto;'), false, '공백 차이에 경고');
+  // 순서가 다르면 표기 차이로 보고한다
+  assert.equal(warned('height:auto;max-width:100%;'), true);
+});
+
+test('UTF-8이 아닌 인코딩의 초안을 차단한다', () => {
+  // 모든 읽기가 utf8을 명시하므로 cp949 문제는 없지만, UTF-16LE 파일을 감지하는
+  // 지점이 없었다. PowerShell 5.1의 `>` 리다이렉션 기본값이 UTF-16LE다.
+  // parseHtml이 BOM과 NUL을 파싱 **전에** 지우므로 mojibake의 흔적을 볼 수 없어
+  // errors 0으로 통과했고, 본문이 U+FFFD로 채워진 글이 Blogger에 생성됐다.
+  const src = fs.readFileSync(path.join(__dirname, 'fixtures', 'drafts', 'draft-toscano.html'), 'utf8');
+  const asUtf16 = Buffer.from(src, 'utf16le').toString('utf8');
+  const withBom = Buffer.concat([
+    Buffer.from([0xFF, 0xFE]), Buffer.from(src, 'utf16le'),
+  ]).toString('utf8');
+
+  for (const [label, text] of [['BOM 없음', asUtf16], ['BOM 있음', withBom]]) {
+    const r = lintDraftHtml(text, {});
+    assert.ok(r.errors.some((e) => e.rule === 'html-structure'
+      && /인코딩/.test(e.message)), `${label}: 인코딩 오류를 보고하지 않음`);
+    assert.equal(r.ok, false);
+  }
+  // 정상 UTF-8은 영향 없다
+  assert.deepEqual(lintDraftHtml(src, {}).errors, []);
+});
