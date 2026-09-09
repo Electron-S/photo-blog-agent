@@ -14,11 +14,36 @@ const { spawn, spawnSync } = require('node:child_process');
 const ROOT = path.join(__dirname, '..');
 const FIXTURES = path.join(__dirname, 'fixtures', 'drafts');
 
-function run(script, args) {
-  return spawnSync(process.execPath, [path.join(ROOT, 'scripts', script), ...args], {
+// 자식이 끝나지 않으면 `spawnSync`는 **영원히 기다린다.** CI에서 그것을 실제로
+// 봤다 — Windows leg의 `npm test`가 20분 넘게 멈춰 있었고(같은 커밋의 ubuntu는 1분
+// 48초에 통과), 어느 테스트에서 멈췄는지 알 방법이 없었다. GitHub의 기본 job
+// 타임아웃은 6시간이다.
+//
+// 타임아웃을 두면 멈춤이 **이름 있는 실패**가 된다. 이 프로젝트가 다른 곳에서
+// silent failure를 없앤 것과 같은 이유다 — 멈춘 CI는 결과가 없는 것이 아니라
+// 잘못된 결과다(초록도 빨강도 아닌 상태로 남는다).
+const SPAWN_TIMEOUT_MS = 60000;
+
+function runWith(script, args, extraEnv) {
+  const r = spawnSync(process.execPath, [path.join(ROOT, 'scripts', script), ...args], {
     encoding: 'utf8',
     cwd: ROOT,
+    timeout: SPAWN_TIMEOUT_MS,
+    ...(extraEnv ? { env: { ...process.env, ...extraEnv } } : {}),
   });
+  // 타임아웃이면 status는 null이고 signal이 채워진다. 이 상태를 그대로 반환하면
+  // `r.status === 1`류 단언이 "0이 아니니 실패했다"로 통과해 버린다.
+  if (r.signal || (r.error && r.error.code === 'ETIMEDOUT')) {
+    throw new Error(
+      `${script} ${args.join(' ')} 가 ${SPAWN_TIMEOUT_MS}ms 안에 끝나지 않았습니다 `
+      + `(signal=${r.signal}). 끝나지 않는 자식은 CI를 멈춘 상태로 남긴다.`,
+    );
+  }
+  return r;
+}
+
+function run(script, args) {
+  return runWith(script, args, null);
 }
 
 test('lint-draft: 통과 초안은 exit 0', () => {
@@ -249,7 +274,8 @@ test('naver:draft — 공개 발행 안전장치 exit 18', () => {
     '--visibility', 'public',
   ];
   const noEnv = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'naver-create-draft.js'), ...args], {
-    encoding: 'utf8', cwd: ROOT, env: { ...process.env, NAVER_ALLOW_PUBLIC: '' },
+    encoding: 'utf8', cwd: ROOT,
+      timeout: SPAWN_TIMEOUT_MS, env: { ...process.env, NAVER_ALLOW_PUBLIC: '' },
   });
   // 이미지 해석이 먼저 걸릴 수 있으므로 18 또는 16 (둘 다 차단)
   assert.ok([16, 18].includes(noEnv.status), `status=${noEnv.status}`);
@@ -490,7 +516,8 @@ test('naver:draft — --dry-run이 공개 발행 게이트를 우회하지 않�
   // 조합에 초록불을 주면 검증의 의미가 없다.
   const args = ['--html', path.join(FIXTURES, 'draft-toscano.html'), '--dry-run', '--visibility', 'public'];
   const blocked = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'naver-create-draft.js'), ...args], {
-    encoding: 'utf8', cwd: ROOT, env: { ...process.env, NAVER_ALLOW_PUBLIC: '' },
+    encoding: 'utf8', cwd: ROOT,
+      timeout: SPAWN_TIMEOUT_MS, env: { ...process.env, NAVER_ALLOW_PUBLIC: '' },
   });
   assert.equal(blocked.status, 18, `status=${blocked.status}\n${blocked.stdout}${blocked.stderr}`);
   assert.match(blocked.stderr, /NAVER_ALLOW_PUBLIC/);
@@ -577,6 +604,7 @@ test('get-blogger-token: 포트가 올바르지 않으면 raw 스택 없이 안�
     const r = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'get-blogger-token.js')], {
       encoding: 'utf8',
       cwd: ROOT,
+    timeout: SPAWN_TIMEOUT_MS,
       env: {
         ...process.env,
         BLOGGER_OAUTH_PORT: bad,
@@ -596,13 +624,20 @@ test('get-blogger-token: 포트가 점유돼 있으면 대안을 안내한다', 
   // Unhandled 'error' event 스택만 나오고 BLOGGER_OAUTH_PORT의 존재조차 알려주지 않았다.
   const http = require('node:http');
   const srv = http.createServer(() => {});
-  await new Promise((resolve) => srv.listen(0, '127.0.0.1', resolve));
+  // **스크립트와 같은 주소에 bind해야 한다.** `get-blogger-token.js`는 호스트 없이
+  // `server.listen(PORT)`를 부르므로 0.0.0.0/:: 에 bind한다. 여기서 127.0.0.1에만
+  // bind하면 Linux는 충돌하지만 **Windows는 다른 주소로 보아 두 번째 bind가
+  // 성공한다** — 그러면 스크립트가 EADDRINUSE로 죽지 않고 OAuth 콜백을 영원히
+  // 기다리고, spawnSync가 그걸 그대로 기다려 CI가 멈춘다 (첫 CI 실행에서 Windows
+  // leg가 20분 넘게 멈춰 있었다. 같은 커밋의 ubuntu는 1분 48초에 통과했다).
+  await new Promise((resolve) => srv.listen(0, resolve));
   const port = srv.address().port;
   t.after(() => srv.close());
 
   const r = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'get-blogger-token.js')], {
     encoding: 'utf8',
     cwd: ROOT,
+    timeout: SPAWN_TIMEOUT_MS,
     env: {
       ...process.env,
       BLOGGER_OAUTH_PORT: String(port),

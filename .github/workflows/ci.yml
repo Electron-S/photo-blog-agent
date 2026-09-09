@@ -23,6 +23,10 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         node: ['20.x', '22.x']
     runs-on: ${{ matrix.os }}
+    # **멈춘 job이 6시간을 태우지 않게 한다.** 기본값이 360분인데, 이 저장소의
+    # 테스트는 가장 느린 조합(Windows)에서도 5분 안에 끝난다. 실제로 Windows leg가
+    # 20분 넘게 멈춰 있는 것을 첫 CI 실행에서 봤다.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

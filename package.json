@@ -4,8 +4,8 @@
   "description": "사진 기반 Blogger 글 작성 에이전트 — 프롬프트, 스크립트, 설정",
   "private": true,
   "scripts": {
-    "test": "node --test test/",
-    "test:clock": "node --require ./tools/clock-shim.js --test test/",
+    "test": "node tools/run-tests.js",
+    "test:clock": "node tools/run-tests.js",
     "lint:draft": "node scripts/lint-draft.js",
     "session:state": "node scripts/session-state.js",
     "blogger:auth": "node scripts/get-blogger-token.js",
