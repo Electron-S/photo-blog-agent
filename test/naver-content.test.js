@@ -125,7 +125,7 @@ test('localPathFor — GitHub Pages URL을 로컬 경로로', () => {
 
 test('resolveImagePaths — 파일이 있으면 localPath를 채운다', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-nv-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const postDir = path.join(dir, '2026-05-10-abc123def456');
   fs.mkdirSync(postDir, { recursive: true });
   fs.writeFileSync(path.join(postDir, 'photo-01.webp'), 'x', 'utf8');
@@ -137,7 +137,7 @@ test('resolveImagePaths — 파일이 있으면 localPath를 채운다', (t) => 
 
 test('resolveImagePaths — 파일이 없으면 exit 16, URL로 폴백하지 않는다', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-nv-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
   const { blocks } = htmlToBlocks(`${FIG(1)}<p>문장.</p>`);
   let thrown;

@@ -56,7 +56,12 @@ test('compressImage의 모든 반환 경로가 같은 필드 집합을 갖는다
   const { compressImage } = require('../lib/github-assets');
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-cs-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  // **maxRetries/retryDelay는 Windows 때문이다.** sharp(libvips)가 입력 파일 핸들을
+  // 아직 쥐고 있으면 Windows는 unlink를 거부하고, 정리 훅이
+  // `EPERM: operation not permitted, unlink ...`로 실패한다 — 테스트 본문은 통과했는데
+  // `failureType: 'hookFailed'`로 빨강이 된다 (첫 CI 실행의 Windows leg에서 실제로 봤다).
+  // Linux에서는 열린 파일도 지워지므로 로컬에서는 절대 드러나지 않는다.
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
   const good = path.join(dir, 'good.jpg');
   await sharp({ create: { width: 60, height: 40, channels: 3, background: '#345' } }).jpeg().toFile(good);

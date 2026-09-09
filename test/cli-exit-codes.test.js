@@ -150,7 +150,7 @@ test('upload-images: exit 5의 원인을 구별해서 보고한다', (t) => {
   // 카메라 시계 오류(implausible)와 EXIF 날짜 없음은 조치가 다르다.
   // 예전에는 둘 다 "EXIF 날짜 없는 사진"으로 보고해 전자에서 엉뚱한 진단이 나갔다.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-d5-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
   const write = (name, obj) => {
     const p = path.join(dir, name);
@@ -179,7 +179,7 @@ test('upload-images: exit 5의 원인을 구별해서 보고한다', (t) => {
 
 test('extract-exif: 지원 이미지가 없으면 exit 3', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-cli-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const txt = path.join(dir, 'note.txt');
   fs.writeFileSync(txt, 'not an image', 'utf8');
 
@@ -208,7 +208,7 @@ test('analyze-photos: --output 없으면 exit 1', () => {
 
 test('analyze-photos: 이미 채워진 파일은 재분석하지 않는다 (모델 간 핸드오프)', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-ap-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const img = path.join(dir, 'x.jpg');
   fs.writeFileSync(img, 'not really a jpg', 'utf8'); // 골격 생성에는 디코드가 필요 없다
   const out = path.join(dir, 'a.json');
@@ -230,7 +230,7 @@ test('analyze-photos: 이미 채워진 파일은 재분석하지 않는다 (모�
 
 test('analyze-photos: 손상된 파일은 백업 후 덮어쓴다 (조용한 소실 금지)', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-ap2-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const img = path.join(dir, 'x.jpg');
   fs.writeFileSync(img, 'x', 'utf8');
   const out = path.join(dir, 'c.json');
@@ -319,7 +319,7 @@ test('analyze-photos: 진행 중인 분석을 덮어쓰지 않는다 (핸드오�
   // scene_description은 채워짐"이고, 예전 판정(capability가 문자열인가)은
   // 그걸 빈 골격으로 보고 백업도 경고도 없이 덮어썼다.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-ap3-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const img = path.join(dir, 'x.jpg');
   fs.writeFileSync(img, 'x', 'utf8');
   const out = path.join(dir, 'pa.json');
@@ -364,7 +364,7 @@ test('analyze-photos: 사진을 추가해 재실행하면 병합한다 (새 사�
   // 분석 대상에서 빠진다**. 덮어쓰면 채워진 분석이 사라진다. 둘 다 조용한
   // 손실이므로 병합이 답이다.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-ap4-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const img = (n) => {
     const p = path.join(dir, n);
     fs.writeFileSync(p, 'x', 'utf8');
@@ -426,7 +426,7 @@ test('analyze-photos: 사진을 추가해 재실행하면 병합한다 (새 사�
 
 test('session-state read --field: 손상은 exit 9, 프로토타입 필드는 exit 1', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-ss2-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const write = (slug, obj) => fs.writeFileSync(
     path.join(dir, `session-state-${slug}.json`), JSON.stringify(obj), 'utf8',
   );
@@ -464,7 +464,7 @@ test('session-state read --field: 손상은 exit 9, 프로토타입 필드는 ex
 
 test('session-state list: 마커는 stdout에 고정, 경로 주석은 stderr', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-ss3-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
   // .claude/commands/blog.md의 진입 프로브가 이 마커로 분기한다. 갓 클론한
   // 저장소에는 tmp/가 없으므로(gitignore), 그 경우에도 마커가 나와야 한다 —
@@ -485,7 +485,7 @@ test('session-state read --slug: 손상 상태는 exit 9 + degraded 표시', (t)
   // --field는 저장소에 호출자가 없다. 경고가 stderr이라 steps_remaining[0]으로
   // 점프하는 재개 규칙이 이미 발행된 글을 처음부터 다시 만들 수 있었다.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-ss4-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   fs.writeFileSync(path.join(dir, 'session-state-hole.json'), JSON.stringify({
     schema_version: 1,
     slug: 'hole',
@@ -558,7 +558,7 @@ test('session-state: primary_date를 무검증으로 저장하지 않는다', (t
   // 세션·모델이 그 값을 **방문 날짜**로 읽는다. slug은 SLUG_RE로 강제되는데
   // 패턴 제약이 있는 필드 중 이것만 빠져 있었다.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-pd-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
   for (const bad of ['2026/05/10', 'not-a-date', '2026-5-10', '2026-02-30', '20260510']) {
     const r = run('session-state.js', ['init', '--slug', 'pd', '--dir', dir, '--primary-date', bad]);
@@ -669,7 +669,7 @@ test('create-draft/update-post: 깨진 이미지의 실패 이유를 버리지 �
   assert.match(dead, /127\.0\.0\.1/, '전제: fixture의 이미지 URL을 치환했다');
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-brk-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const file = path.join(dir, 'dead.html');
   fs.writeFileSync(file, dead, 'utf8');
 
@@ -708,7 +708,7 @@ test('upload-images: --metadata의 primary_date를 무검증으로 쓰지 않는
   // **공개 저장소에 push**되고, 그 뒤에 오는 loadSlugFromMetadata와 session-state는
   // 같은 값을 거부한다 — 되돌릴 수 없는 단계가 통과하고 되돌릴 수 있는 단계가 죽는다.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-md-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const write = (primaryDate) => {
     const f = path.join(dir, 'meta.json');
     fs.writeFileSync(f, JSON.stringify({ primary_date: primaryDate, photos: [] }), 'utf8');
@@ -750,7 +750,7 @@ test('CLI는 비정상 입력에 raw 스택을 노출하지 않는다', (t) => {
   // `lib/slug.js` → `publish-post.js`로 **우리 소스**였다. 깨진 파일의 위치는 이미
   // 메시지에 있고("at position 2"), 스택은 조치할 줄을 6줄 아래로 밀어냈다.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-stk-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const badJson = path.join(dir, 'bad.json');
   fs.writeFileSync(badJson, '{ this is not json', 'utf8');
   const emptyHtml = path.join(dir, 'empty.html');
@@ -806,7 +806,7 @@ test('CLI는 비정상 입력에 raw 스택을 노출하지 않는다', (t) => {
 
 test('publish-post: --slug-from-date 실패는 원인별 조치를 안내한다', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-sfd-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const badJson = path.join(dir, 'bad.json');
   fs.writeFileSync(badJson, '{ this is not json', 'utf8');
 
@@ -866,7 +866,7 @@ test('선언된 CLI 플래그는 전부 파서가 받는다', () => {
     const r = run('upload-images.js', args);
     if (/unknown option/.test(r.stderr)) rejected.push(`${flag}: ${r.stderr.split('\n')[0]}`);
   }
-  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   assert.deepEqual(rejected, [],
     `usage가 선언한 플래그를 파서가 거부함:\n  ${rejected.join('\n  ')}`);
 });
@@ -875,7 +875,7 @@ test('upload-images: --allow-replace가 CLI에서 실제로 통한다', (t) => {
   // 위 테스트가 클래스를 잡지만, 이 플래그는 **되돌릴 수 없는 동작**(이미 발행된
   // 글의 이미지 교체)의 유일한 관문이므로 개별로도 고정한다.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-ar-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
   const r = run('upload-images.js',
     ['/nonexistent.jpg', '--slug', 'abc-def', '--date', '2026-05-10', '--allow-replace']);
@@ -905,7 +905,7 @@ test('모든 스크립트: usage가 선언한 플래그를 파서가 받는다',
   // 설명 산문에 나오는 **다른 스크립트의** 플래그(`lint-draft --upload-result`)는
   // 둘 다에 안 걸리므로 오탐이 나지 않는다.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-flags-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const meta = path.join(dir, 'm.json');
   fs.writeFileSync(meta, JSON.stringify({ primary_date: '2026-05-10', photos: [] }), 'utf8');
   const upres = path.join(dir, 'u.json');
@@ -973,7 +973,7 @@ test('session-state: 서브커맨드별 선언 플래그를 전부 받는다', (
   // 쓴다(`init --slug S [--primary-date D] ...`). 위 테스트의 추출 방식으로는
   // 안 잡히므로 따로 고정한다.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-ss-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const meta = path.join(dir, 'm.json');
   fs.writeFileSync(meta, JSON.stringify({ primary_date: '2026-05-10' }), 'utf8');
   const html = path.join(FIXTURES, 'draft-toscano.html');

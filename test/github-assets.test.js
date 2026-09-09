@@ -36,7 +36,7 @@ test('fallback 불가를 fallbackUsed로 오집계하지 않는다', async (t) =
   // (실측: 3장 전부 실패인데 "3/3 fallback 경로 — 원본 파일 점검 필요"로 보고).
   // 조치가 다르면 집계도 달라야 한다.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-ga-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const inputs = ['a.jpg', 'b.jpg', 'c.jpg'].map((n) => {
     const p = path.join(dir, n);
     fs.writeFileSync(p, 'not an image', 'utf8');
@@ -202,7 +202,7 @@ test('uploadAsset — 이미 있는 경로에 다른 내용을 조용히 덮어�
   const pathMod = require('node:path');
 
   const dir = fsp.mkdtempSync(pathMod.join(os.tmpdir(), 'pba-ua-'));
-  t.after(() => fsp.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fsp.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const file = pathMod.join(dir, 'photo-01.webp');
   const bytes = Buffer.from('IMAGE-BYTES-A');
   fsp.writeFileSync(file, bytes);
@@ -350,7 +350,7 @@ test('업로드 결과 투영이 lib의 모든 키를 덮는다', async (t) => {
   const { OUTPUT_IMAGE_KEYS, INTENTIONALLY_OMITTED } = require('../lib/upload-result');
 
   const dir = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'pba-proj-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const img = await makeTestJpeg(dir);
 
   const collect = (result) => Object.keys(result.images[0]);
@@ -383,7 +383,7 @@ test('검증이 실패해도 공개된 주소는 산출물에 남는다', async 
   const { toOutputImage } = require('../lib/upload-result');
 
   const dir = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'pba-rp-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const img = await makeTestJpeg(dir);
 
   const { result, puts } = await withUploadStub({ headFailures: 99 }, async (ga, p) => ({
@@ -412,7 +412,7 @@ test('재시도가 uploadStatus를 unchanged로 강등하지 않는다', async (
   const { toOutputImage } = require('../lib/upload-result');
 
   const dir = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'pba-rt-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const img = await makeTestJpeg(dir);
 
   const run = (stub, options, w) => withUploadStub(stub, async (ga, puts) => ({
@@ -444,7 +444,7 @@ test('교체 거부는 기본값이고, 부분 업로드 위험을 함께 안내
   const pathMod = require('node:path');
 
   const dir = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'pba-rj-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const img = await makeTestJpeg(dir);
 
   const { result, puts } = await withUploadStub({ remoteSha: 'deadbeef' }, async (ga, p) => ({
@@ -477,7 +477,7 @@ test('--work-dir가 글 폴더 분리를 없애면 표면화한다', async (t) =
   const { postDirName } = require('../lib/asset-paths');
 
   const dir = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'pba-wd-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const mk = async (name, tint) => {
     const p = pathMod.join(dir, name);
     await sharp({ create: { width: 400, height: 300, channels: 3,
