@@ -61,7 +61,7 @@ test('compressImage의 모든 반환 경로가 같은 필드 집합을 갖는다
   // `EPERM: operation not permitted, unlink ...`로 실패한다 — 테스트 본문은 통과했는데
   // `failureType: 'hookFailed'`로 빨강이 된다 (첫 CI 실행의 Windows leg에서 실제로 봤다).
   // Linux에서는 열린 파일도 지워지므로 로컬에서는 절대 드러나지 않는다.
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
 
   const good = path.join(dir, 'good.jpg');
   await sharp({ create: { width: 60, height: 40, channels: 3, background: '#345' } }).jpeg().toFile(good);

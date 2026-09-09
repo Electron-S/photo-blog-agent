@@ -52,10 +52,12 @@ if (files.length === 0) {
   process.exit(1);
 }
 
-// CLOCK_OFFSET_MS가 있으면 시계 shim을 함께 로드한다 (npm run test:clock).
-const preload = process.env.CLOCK_OFFSET_MS
-  ? ['--require', path.join(__dirname, 'clock-shim.js')]
-  : [];
+// test-preload는 항상 넣는다 (sharp 파일 캐시를 끈다 — Windows 정리 훅 EPERM 방지).
+// CLOCK_OFFSET_MS가 있으면 시계 shim도 함께 (npm run test:clock).
+const preload = ['--require', path.join(__dirname, 'test-preload.js')];
+if (process.env.CLOCK_OFFSET_MS) {
+  preload.push('--require', path.join(__dirname, 'clock-shim.js'));
+}
 
 const args = ['--test', ...preload, ...process.argv.slice(2), ...files];
 const r = spawnSync(process.execPath, args, { stdio: 'inherit', cwd: ROOT });

@@ -97,7 +97,7 @@ test('parsePrimaryDate', () => {
 
 test('loadSlugFromMetadata — 파일에서 읽기', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pba-slug-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
 
   const good = path.join(dir, 'meta.json');
   fs.writeFileSync(good, JSON.stringify({ primary_date: '2026-05-10' }), 'utf8');
